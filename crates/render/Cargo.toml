@@ -1,0 +1,14 @@
+[package]
+name = "vpet-render"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+cosmic-text.workspace = true
+image.workspace = true
+thiserror.workspace = true
+tiny-skia.workspace = true
+tracing.workspace = true
+vpet-content.workspace = true

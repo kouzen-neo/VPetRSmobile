@@ -1,0 +1,55 @@
+# Rust / Cargo build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+*.profraw
+*.profdata
+
+# Android / Gradle build artifacts
+.gradle/
+build/
+*/build/
+app/build/
+.cxx/
+local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+captures/
+
+# Android signing keys & keystores (never commit release keys)
+*.jks
+*.keystore
+release-key.properties
+
+# Runtime saves, sockets, logs, and dumps
+*.sock
+*.mpak
+*.mpak.tmp.*
+*.bak.*
+*.log
+*.log.*
+
+# User-supplied VPet content & raw assets (never bundle upstream art directly in git)
+/0000_core/
+/content/
+/assets/0000_core/
+/mod/
+/mods/
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo
+.idea/
+.vscode/
+*.iml
+.direnv/
+.env
+
+# Local agent notes
+/AGENTS.md

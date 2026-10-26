@@ -1,0 +1,48 @@
+# Default to LF line endings for all text files
+* text=auto eol=lf
+
+# Source, configuration, and scripts
+*.rs          text eol=lf diff=rust
+*.kt          text eol=lf diff=kotlin
+*.kts         text eol=lf diff=kotlin
+*.java        text eol=lf diff=java
+*.xml         text eol=lf
+*.toml        text eol=lf
+*.lock        text eol=lf
+*.md          text eol=lf diff=markdown
+*.sh          text eol=lf
+*.yml         text eol=lf
+*.yaml        text eol=lf
+*.properties  text eol=lf
+*.pro         text eol=lf
+gradlew       text eol=lf
+
+# GitHub Linguist overrides: report repository as Rust & Kotlin
+*.sh                   linguist-detectable=false
+*.xml                  linguist-detectable=false
+*.properties           linguist-detectable=false
+gradlew                linguist-detectable=false
+gradlew.bat            linguist-detectable=false
+gradle/**              linguist-detectable=false
+scripts/**             linguist-detectable=false
+.github/**             linguist-detectable=false
+docs/**                linguist-documentation
+*.md                   linguist-documentation
+
+# Binary assets, shared libraries, and archives
+*.so        binary
+*.jar       binary
+*.aar       binary
+*.png       binary
+*.apng      binary
+*.gif       binary
+*.webp      binary
+*.ico       binary
+*.ttf       binary
+*.otf       binary
+*.ttc       binary
+*.mpak      binary
+*.zlps      binary
+*.zst       binary
+*.gz        binary
+*.xz        binary

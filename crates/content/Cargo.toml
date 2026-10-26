@@ -1,0 +1,12 @@
+[package]
+name = "vpet-content"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+vpet-core.workspace = true
