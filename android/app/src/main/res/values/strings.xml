@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">VPet Mobile</string>
+    <string name="overlay_service_title">VPet is Active</string>
+    <string name="overlay_service_desc">Loris is floating on your screen</string>
+    <string name="action_feed">Feed Snack</string>
+    <string name="action_sleep">Sleep / Wake</string>
+    <string name="action_chat">Chat with Pet</string>
+    <string name="action_stop">Close Pet</string>
+    <string name="permission_required_title">Overlay Permission Required</string>
+    <string name="permission_required_desc">VPet needs permission to display over other apps so Loris can accompany you.</string>
+    <string name="grant_permission">Grant Permission</string>
+    <string name="start_pet">Start Floating Pet</string>
+    <string name="stop_pet">Stop Pet</string>
+    <string name="scale_label">Pet Size Scale:</string>
+    <string name="ai_endpoint_label">AI API Endpoint:</string>
+    <string name="ai_model_label">AI Model:</string>
+</resources>

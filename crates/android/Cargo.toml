@@ -13,6 +13,8 @@ crate-type = ["cdylib", "rlib"]
 vpet-core.workspace = true
 vpet-content.workspace = true
 vpet-render.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
 jni = { version = "0.21", default-features = false }
 android_logger = "0.14"
 log = "0.4"
@@ -20,3 +22,4 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tiny-skia = { workspace = true }
+ureq = { workspace = true }

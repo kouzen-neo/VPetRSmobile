@@ -17,6 +17,8 @@ local.properties
 *.ap_
 *.dex
 *.class
+*.zip
+vpet-mobile.apk
 captures/
 
 # Android signing keys & keystores (never commit release keys)

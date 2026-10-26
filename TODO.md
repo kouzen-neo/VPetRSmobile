@@ -36,13 +36,13 @@ Repo ini memakai **satu commit per fase** (atau sub-commit berstruktur logis dal
 | Fase | Nama | Status | Tag |
 |---|---|---|---|
 | 0 | Bootstrap repo, workspace & docs | `[x]` selesai | `v0.0.1` |
-| 1 | Native NDK bridge & JNI bindings (`vpet-android`) | `[ ]` belum | `v0.1.0` |
-| 2 | Android Foreground Service & Floating Overlay | `[ ]` belum | `v0.2.0` |
-| 3 | Content loader & frame rendering di Android Canvas | `[ ]` belum | `v0.3.0` |
-| 4 | Sentuhan interaktif (drag/drop, elus kepala/badan) | `[ ]` belum | `v0.4.0` |
-| 5 | Simulasi state, stat bar & balon percakapan | `[ ]` belum | `v0.5.0` |
-| 6 | AI Chat (LLM) & Quick Action Wheel | `[ ]` belum | `v0.6.0` |
-| 7 | Optimasi baterai, low-memory test & APK release | `[ ]` belum | `v1.0.0` |
+| 1 | Native NDK bridge & JNI bindings (`vpet-android`) | `[x]` selesai | `v0.1.0` |
+| 2 | Android Foreground Service & Floating Overlay | `[x]` selesai | `v0.2.0` |
+| 3 | Content loader & frame rendering di Android Canvas | `[x]` selesai | `v0.3.0` |
+| 4 | Sentuhan interaktif (drag/drop, elus kepala/badan) | `[x]` selesai | `v0.4.0` |
+| 5 | Simulasi state, stat bar & balon percakapan | `[x]` selesai | `v0.5.0` |
+| 6 | AI Chat (LLM) & Quick Action Wheel | `[x]` selesai | `v0.6.0` |
+| 7 | Optimasi baterai, low-memory test & APK release | `[x]` selesai | `v1.0.0` |
 
 Legenda status: `[ ]` belum, `[~]` dikerjakan, `[x]` selesai, `[!]` terblokir.
 
@@ -73,48 +73,48 @@ Legenda status: `[ ]` belum, `[~]` dikerjakan, `[x]` selesai, `[!]` terblokir.
 - [x] Siapkan script verifikasi `./scripts/check-no-dotnet.sh`.
 
 ### Fase 1 — Native NDK Bridge & JNI Bindings
-- [ ] Setup `Cargo.toml` workspace dengan crate `vpet-android` (`crate-type = ["cdylib", "rlib"]`).
-- [ ] Buat interface JNI murni via crate `jni`:
+- [x] Setup `Cargo.toml` workspace dengan crate `vpet-android` (`crate-type = ["cdylib", "rlib"]`).
+- [x] Buat interface JNI murni via crate `jni`:
   - `nativeInit(assetPath: String, saveDir: String)`
   - `nativeTick(dtSeconds: Float): Boolean`
   - `nativeRenderBitmap(bitmap: Object)`
   - `nativeTouch(action: Int, x: Float, y: Float): Boolean`
   - `nativeGetPetState(): String`
-- [ ] Konfigurasi kompilasi `cargo-ndk` untuk target `aarch64-linux-android`.
+- [x] Konfigurasi kompilasi `cargo-ndk` untuk target `aarch64-linux-android`.
 
 ### Fase 2 — Android Foreground Service & Floating Overlay
-- [ ] Setup Android project structure (Gradle, AndroidManifest.xml).
-- [ ] Implementasikan `PetOverlayService`:
+- [x] Setup Android project structure (Gradle, AndroidManifest.xml).
+- [x] Implementasikan `PetOverlayService`:
   - Notification channel & persistent notification "VPet is active".
   - Minta permission `SYSTEM_ALERT_WINDOW`.
   - Pasang view di `WindowManager` menggunakan `TYPE_APPLICATION_OVERLAY`.
-- [ ] Tangani broadcast receiver `ACTION_SCREEN_OFF` dan `ACTION_SCREEN_ON` untuk stop/resume render loop.
+- [x] Tangani broadcast receiver `ACTION_SCREEN_OFF` dan `ACTION_SCREEN_ON` untuk stop/resume render loop.
 
 ### Fase 3 — Content Loader & Frame Rendering
-- [ ] Salin/tautkan engine decoding `vpet-content` dan `vpet-render`.
-- [ ] Ekstrak/baca aset `0000_core` di Android internal storage.
-- [ ] Implementasikan zero-overhead blitting ke Android `Bitmap` via `AndroidBitmap_lockPixels`.
-- [ ] Terapkan frame rate throttling (15 FPS idle, 30 FPS active).
+- [x] Salin/tautkan engine decoding `vpet-content` dan `vpet-render`.
+- [x] Ekstrak/baca aset `0000_core` di Android internal storage.
+- [x] Implementasikan zero-overhead blitting ke Android `Bitmap` via `AndroidBitmap_lockPixels`.
+- [x] Terapkan frame rate throttling (15 FPS idle, 30 FPS active).
 
 ### Fase 4 — Sentuhan Interaktif
-- [ ] Tangani `MotionEvent` di custom view:
+- [x] Tangani `MotionEvent` di custom view:
   - Drag threshold: jika digeser > 10dp, pindahkan posisi overlay window via `WindowManager.updateViewLayout`.
   - Tap: bedakan sentuhan kepala (`Touch_Head`) vs badan (`Touch_Body`).
-- [ ] Terapkan animasi angkat (`Raised_Dynamic`) dan jatuh (`Raised_Static`).
+- [x] Terapkan animasi angkat (`Raised_Dynamic`) dan jatuh (`Raised_Static`).
 
 ### Fase 5 — Simulasi State & Balon Percakapan
-- [ ] Tautkan `vpet-core` untuk kalkulasi status (lapar, haus, stamina, level, mood).
-- [ ] Render balon percakapan (`BubbleStyle`) di atas kepala pet saat berinteraksi.
-- [ ] Simpan state permainan secara atomik ke file `.mpak` di storage privat aplikasi.
+- [x] Tautkan `vpet-core` untuk kalkulasi status (lapar, haus, stamina, level, mood).
+- [x] Render balon percakapan (`BubbleStyle`) di atas kepala pet saat berinteraksi.
+- [x] Simpan state permainan secara atomik ke file `.mpak` di storage privat aplikasi.
 
 ### Fase 6 — AI Chat & Quick Action Wheel
-- [ ] Hubungkan `AiWorker` Rust via `ureq` ke endpoint chat (`http://localhost:20128/v1` atau proxy internet).
-- [ ] Tampilkan balon teks AI responsif saat chat selesai.
-- [ ] Buat menu aksi melayang ringkas (Beri makan, Minum, Tidur, Ajak ngobrol).
-- [ ] Buat Activity konfigurasi (ukuran pet, URL AI, reset posisi).
+- [x] Hubungkan `AiWorker` Rust via `ureq` ke endpoint chat (`http://localhost:20128/v1` atau proxy internet).
+- [x] Tampilkan balon teks AI responsif saat chat selesai.
+- [x] Buat menu aksi melayang ringkas (Beri makan, Minum, Tidur, Ajak ngobrol).
+- [x] Buat Activity konfigurasi (ukuran pet, URL AI, reset posisi).
 
 ### Fase 7 — Release APK & Quality Hardening
-- [ ] Uji soak test daya baterai (baterai tidak terkuras saat layar mati).
-- [ ] Tangani `onTrimMemory` saat Android kehabisan RAM.
-- [ ] Verifikasi `./scripts/check-no-dotnet.sh` pada shared library `.so`.
-- [ ] Build biner final Release APK.
+- [x] Uji soak test daya baterai (baterai tidak terkuras saat layar mati).
+- [x] Tangani `onTrimMemory` saat Android kehabisan RAM.
+- [x] Verifikasi `./scripts/check-no-dotnet.sh` pada shared library `.so`.
+- [x] Build biner final Release APK.
