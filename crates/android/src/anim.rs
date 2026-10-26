@@ -380,8 +380,9 @@ impl InteractionController {
         clip.frame_elapsed_ms = clip.frame_elapsed_ms.saturating_add(dt_ms);
 
         let mut clip_finished = false;
-        while clip.frame_elapsed_ms >= durs[clip.frame_index] {
-            clip.frame_elapsed_ms -= durs[clip.frame_index];
+        while clip.frame_elapsed_ms >= durs[clip.frame_index].max(20) {
+            let dur = durs[clip.frame_index].max(20);
+            clip.frame_elapsed_ms -= dur;
             if clip.frame_index + 1 < durs.len() {
                 clip.frame_index += 1;
             } else {

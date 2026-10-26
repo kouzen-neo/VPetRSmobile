@@ -134,11 +134,37 @@ impl MobileEngine {
         };
         let ai_worker = AiWorker::spawn(ai_cfg);
 
+        let mut bubble_renderer = BubbleRenderer::new();
+        let theme_fonts_dir = content_root.join("theme/fonts");
+        if let Ok(entries) = std::fs::read_dir(&theme_fonts_dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.extension()
+                    .is_some_and(|ext| ext == "ttf" || ext == "otf")
+                {
+                    info!("loading bundled theme font: {}", p.display());
+                    bubble_renderer.load_font_file(&p);
+                }
+            }
+        }
+        for sys_font in [
+            "/system/fonts/Roboto-Regular.ttf",
+            "/system/fonts/DroidSans.ttf",
+            "/system/fonts/NotoSansCJK-Regular.ttc",
+        ] {
+            let p = Path::new(sys_font);
+            if p.exists() {
+                bubble_renderer.load_font_file(p);
+            }
+        }
+
         let bubble_style = BubbleStyle {
-            font_px: (target_px as f32 * 0.06).clamp(12.0, 18.0),
-            padding_px: 8,
-            corner_radius: 8.0,
-            ..Default::default()
+            bg_rgba: [255, 255, 255, 245],
+            border_rgba: [3, 169, 244, 255],
+            text_rgba: [15, 23, 42, 255],
+            font_px: (target_px as f32 * 0.065).clamp(14.0, 22.0),
+            padding_px: 10,
+            corner_radius: 10.0,
         };
 
         let bubble_pad_px = target_px / 3;
@@ -151,7 +177,7 @@ impl MobileEngine {
             anim,
             cache,
             loader,
-            bubble_renderer: Some(BubbleRenderer::new()),
+            bubble_renderer: Some(bubble_renderer),
             bubble_style,
             save_store,
             ai_worker,
@@ -384,6 +410,43 @@ impl MobileEngine {
 
     pub fn toggle_sleep(&mut self) -> bool {
         self.anim.toggle_sleep(&self.anim_index, &mut self.world)
+    }
+
+    pub fn start_work(&mut self, work_name: &str) -> String {
+        let work = self.pet_cfg.works.iter().find(|w| {
+            w.name.eq_ignore_ascii_case(work_name) || w.graph.eq_ignore_ascii_case(work_name)
+        });
+        if let Some(w) = work {
+            let name = w.name.clone();
+            self.anim.request_state(
+                ActionState::Working {
+                    graph: w.graph.clone(),
+                },
+                true,
+                &self.anim_index,
+                &mut self.world,
+            );
+            self.anim.show_bubble(format!("Working: {name}!"), 4_000);
+            format!("started {name}")
+        } else {
+            self.anim.request_state(
+                ActionState::Working {
+                    graph: "work".to_owned(),
+                },
+                true,
+                &self.anim_index,
+                &mut self.world,
+            );
+            self.anim.show_bubble("Working hard!", 4_000);
+            "started work".to_owned()
+        }
+    }
+
+    pub fn cancel_work(&mut self) -> bool {
+        self.anim
+            .request_state(ActionState::Idle, true, &self.anim_index, &mut self.world);
+        self.anim.show_bubble("Break time!", 3_000);
+        true
     }
 
     pub fn get_status_json(&self) -> String {
@@ -638,6 +701,42 @@ pub extern "system" fn Java_org_vpet_mobile_PetBridge_nativeFeed(
         .unwrap_or_default();
     let res = engine.feed(&food);
     env.new_string(res).unwrap().into_raw()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_vpet_mobile_PetBridge_nativeStartWork(
+    mut env: JNIEnv,
+    _class: JClass,
+    engine_ptr: jlong,
+    work_name: JString,
+) -> jstring {
+    if engine_ptr == 0 {
+        return env.new_string("").unwrap().into_raw();
+    }
+    let engine = unsafe { &mut *(engine_ptr as *mut MobileEngine) };
+    let work: String = env
+        .get_string(&work_name)
+        .map(|s| s.into())
+        .unwrap_or_default();
+    let res = engine.start_work(&work);
+    env.new_string(res).unwrap().into_raw()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_vpet_mobile_PetBridge_nativeCancelWork(
+    _env: JNIEnv,
+    _class: JClass,
+    engine_ptr: jlong,
+) -> jboolean {
+    if engine_ptr == 0 {
+        return JNI_FALSE;
+    }
+    let engine = unsafe { &mut *(engine_ptr as *mut MobileEngine) };
+    if engine.cancel_work() {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
 }
 
 #[unsafe(no_mangle)]

@@ -34,6 +34,10 @@ object PetBridge {
 
     external fun nativeToggleSleep(enginePtr: Long): Boolean
 
+    external fun nativeStartWork(enginePtr: Long, workName: String): String
+
+    external fun nativeCancelWork(enginePtr: Long): Boolean
+
     external fun nativeAskAi(enginePtr: Long, prompt: String): Boolean
 
     external fun nativeSay(enginePtr: Long, text: String)

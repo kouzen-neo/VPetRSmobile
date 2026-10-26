@@ -37,15 +37,17 @@ class PetView(
     private val touchSlop = 10f * resources.displayMetrics.density
 
     private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onSingleTapUp(e: MotionEvent): Boolean {
+            if (!isDragging) {
+                onActionTouch("tap", e.x, e.y)
+            }
+            return true
+        }
+
         override fun onLongPress(e: MotionEvent) {
             if (!isDragging) {
                 onLongPressAction()
             }
-        }
-
-        override fun onDoubleTap(e: MotionEvent): Boolean {
-            onLongPressAction()
-            return true
         }
     })
 
@@ -88,21 +90,11 @@ class PetView(
                 return true
             }
 
-            MotionEvent.ACTION_UP -> {
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 if (isDragging) {
                     isDragging = false
                     onDragEnd()
                     onActionTouch("drop", event.x, event.y)
-                } else {
-                    onActionTouch("tap", event.x, event.y)
-                }
-                return true
-            }
-
-            MotionEvent.ACTION_CANCEL -> {
-                if (isDragging) {
-                    isDragging = false
-                    onDragEnd()
                 }
                 return true
             }
