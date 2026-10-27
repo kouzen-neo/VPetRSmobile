@@ -412,38 +412,92 @@ impl MobileEngine {
     }
 
     pub fn feed(&mut self, food_name: &str) -> String {
-        let item = self.content.foods.get(food_name);
-        let eff = if food_name.eq_ignore_ascii_case("medicine")
-            || food_name.eq_ignore_ascii_case("pill")
-            || food_name.eq_ignore_ascii_case("cure")
-        {
-            FoodEffect {
-                name: "Medicine".to_owned(),
-                price: 0.0,
-                exp: 10.0,
-                strength: 30.0,
-                strength_food: 20.0,
-                strength_drink: 20.0,
-                feeling: 20.0,
-                health: 50.0,
-                likability: 3.0,
-                buff_id: None,
-                buff_time_mins: 0,
-            }
-        } else if let Some(it) = item {
-            food_item_to_effect(it)
-        } else {
-            default_snack_effect()
-        };
-
         let now_unix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_secs() as i64);
 
+        let is_medicine = food_name.eq_ignore_ascii_case("medicine")
+            || food_name.eq_ignore_ascii_case("pill")
+            || food_name.eq_ignore_ascii_case("cure");
+
+        let (eff, icon_path, graph) = if is_medicine {
+            let med_icon = self
+                .content
+                .foods
+                .get("Vitamin C Tablet")
+                .or_else(|| self.content.foods.get("Calcium Tablet"))
+                .and_then(|f| f.image_path.clone());
+            (
+                FoodEffect {
+                    name: "Medicine".to_owned(),
+                    price: 0.0,
+                    exp: 10.0,
+                    strength: 30.0,
+                    strength_food: 20.0,
+                    strength_drink: 20.0,
+                    feeling: 20.0,
+                    health: 50.0,
+                    likability: 3.0,
+                    buff_id: None,
+                    buff_time_mins: 0,
+                },
+                med_icon,
+                "eat".to_owned(),
+            )
+        } else if let Some(item) = self.content.foods.get(food_name) {
+            let fallback_icon = if item.graph == "drink" {
+                self.content
+                    .foods
+                    .get("Mineral Water")
+                    .or_else(|| self.content.foods.get("1L Pure Water"))
+                    .and_then(|f| f.image_path.clone())
+            } else {
+                self.content
+                    .foods
+                    .get("Sandwich")
+                    .or_else(|| self.content.foods.get("Bread"))
+                    .and_then(|f| f.image_path.clone())
+            };
+            (
+                food_item_to_effect(item),
+                item.image_path.clone().or(fallback_icon),
+                item.graph.clone(),
+            )
+        } else if food_name.eq_ignore_ascii_case("snack") {
+            let snack_item = self
+                .content
+                .foods
+                .get("Sandwich")
+                .or_else(|| self.content.foods.get("Bread"))
+                .or_else(|| self.content.foods.get("Cookie"));
+            (
+                default_snack_effect(),
+                snack_item.and_then(|f| f.image_path.clone()),
+                "eat".to_owned(),
+            )
+        } else {
+            (default_snack_effect(), None, "eat".to_owned())
+        };
+
         let label = eff.name.clone();
         match self.world.feed(&eff, now_unix) {
-            Ok(_) => {
-                self.anim.show_bubble(format!("Yum! ({label})"), 3_000);
+            Ok(gained_levels) => {
+                let msg = if graph == "drink" {
+                    format!("Gulp gulp... ({label})")
+                } else {
+                    format!("Yum! ({label})")
+                };
+                self.anim.show_bubble(msg, 3_000);
+                self.anim.on_feed(
+                    graph,
+                    Some(label.clone()),
+                    icon_path,
+                    &self.anim_index,
+                    &mut self.world,
+                );
+                if gained_levels > 0 {
+                    self.anim.on_level_up(&self.anim_index, &mut self.world);
+                }
                 format!("fed {label}")
             }
             Err(e) => {

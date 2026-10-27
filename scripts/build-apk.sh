@@ -33,7 +33,7 @@ with zipfile.ZipFile(out_zip, 'w', compression=zipfile.ZIP_DEFLATED, compresslev
         if parts[0] == 'pet' and len(parts) >= 2 and parts[1] == 'vup':
             if len(parts) > 2 and parts[2] not in included_vup:
                 continue
-        elif parts[0] in {'image', 'file', 'photo'}:
+        elif parts[0] in {'file', 'photo'}:
             continue
         for f in files:
             full_path = os.path.join(root, f)
