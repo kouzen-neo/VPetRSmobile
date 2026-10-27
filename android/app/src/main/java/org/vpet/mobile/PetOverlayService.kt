@@ -188,9 +188,12 @@ class PetOverlayService : Service() {
             onMoveDelta = { dx, dy ->
                 layoutParams?.let { params ->
                     val dm = resources.displayMetrics
-                    val maxX = (dm.widthPixels - (petView?.bitmapWidth ?: 280)).coerceAtLeast(0)
+                    val offsetLeft = ((219f * (petView?.bitmapWidth ?: 280)) / 500f).toInt()
+                    val offsetRight = (((500f - 281f) * (petView?.bitmapWidth ?: 280)) / 500f).toInt()
+                    val minX = -offsetLeft
+                    val maxX = dm.widthPixels - (petView?.bitmapWidth ?: 280) + offsetRight
                     val maxY = (dm.heightPixels - (petView?.bitmapHeight ?: 350)).coerceAtLeast(0)
-                    params.x = (params.x + dx).coerceIn(0, maxX)
+                    params.x = (params.x + dx).coerceIn(minX, maxX)
                     params.y = (params.y + dy).coerceIn(0, maxY)
                     if (enginePtr != 0L) {
                         PetBridge.nativeSetPos(enginePtr, params.x, params.y)
@@ -208,6 +211,12 @@ class PetOverlayService : Service() {
                 layoutParams?.let { params ->
                     if (enginePtr != 0L) {
                         PetBridge.nativeSetPos(enginePtr, params.x, params.y)
+                        PetBridge.nativeTouch(enginePtr, "drop", 0f, 0f)
+                        val snappedX = PetBridge.nativeGetPosX(enginePtr)
+                        val snappedY = PetBridge.nativeGetPosY(enginePtr)
+                        params.x = snappedX
+                        params.y = snappedY
+                        windowManager?.updateViewLayout(petView, params)
                     }
                     prefs.edit()
                         .putInt("pet_pos_x", params.x)
@@ -279,9 +288,12 @@ class PetOverlayService : Service() {
             params.width = targetPx
             params.height = targetPx + bubblePadPx
             val dm = resources.displayMetrics
-            val maxX = (dm.widthPixels - targetPx).coerceAtLeast(0)
+            val offsetLeft = ((219f * targetPx) / 500f).toInt()
+            val offsetRight = (((500f - 281f) * targetPx) / 500f).toInt()
+            val minX = -offsetLeft
+            val maxX = dm.widthPixels - targetPx + offsetRight
             val maxY = (dm.heightPixels - (targetPx + bubblePadPx)).coerceAtLeast(0)
-            params.x = params.x.coerceIn(0, maxX)
+            params.x = params.x.coerceIn(minX, maxX)
             params.y = params.y.coerceIn(0, maxY)
             windowManager?.updateViewLayout(petView, params)
         }
@@ -1054,9 +1066,12 @@ class PetOverlayService : Service() {
         if (enginePtr != 0L) {
             PetBridge.nativeSetScreenBounds(enginePtr, dm.widthPixels, dm.heightPixels)
             layoutParams?.let { params ->
-                val maxX = (dm.widthPixels - (petView?.bitmapWidth ?: 280)).coerceAtLeast(0)
+                val offsetLeft = ((219f * (petView?.bitmapWidth ?: 280)) / 500f).toInt()
+                val offsetRight = (((500f - 281f) * (petView?.bitmapWidth ?: 280)) / 500f).toInt()
+                val minX = -offsetLeft
+                val maxX = dm.widthPixels - (petView?.bitmapWidth ?: 280) + offsetRight
                 val maxY = (dm.heightPixels - (petView?.bitmapHeight ?: 350)).coerceAtLeast(0)
-                params.x = params.x.coerceIn(0, maxX)
+                params.x = params.x.coerceIn(minX, maxX)
                 params.y = params.y.coerceIn(0, maxY)
                 PetBridge.nativeSetPos(enginePtr, params.x, params.y)
                 windowManager?.updateViewLayout(petView, params)

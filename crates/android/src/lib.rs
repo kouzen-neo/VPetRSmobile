@@ -394,8 +394,17 @@ impl MobileEngine {
                 "dragging".to_owned()
             }
             "drop" => {
-                self.anim
-                    .on_drag_end("screen", self.pos, &self.anim_index, &mut self.world);
+                self.anim.on_drag_end(
+                    "screen",
+                    self.pos,
+                    self.screen_bounds,
+                    (self.target_px, self.target_px),
+                    &self.anim_index,
+                    &mut self.world,
+                );
+                if let Some(p) = self.world.output_positions.get("screen") {
+                    self.pos = *p;
+                }
                 "dropped".to_owned()
             }
             _ => "unknown".to_owned(),

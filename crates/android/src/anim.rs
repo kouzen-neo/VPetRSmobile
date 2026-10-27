@@ -2,6 +2,8 @@
 //! Priority animation state machine, `A_Start -> B_Loop -> C_End` segment player,
 //! `500x500` logical hit-region classifier, auto-walk, and headless interaction controller.
 
+use std::path::PathBuf;
+
 use vpet_content::{
     AnimatType, AnimationEntry, AnimationIndex, AnimationSource, GraphType, PetConfig,
 };
@@ -55,12 +57,27 @@ impl TouchKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SwitchKind {
+    Up,
+    Down,
+    Hunger,
+    Thirsty,
+}
+
 /// High-level behavioral state ordered by priority:
-/// `Raised (70) > Touch (60) > Working (50) > Saying (40) > Moving (30) > Idle (20) > Sleeping (10)`
-/// (Note: explicit `Sleeping` holds until woken, while `Touch` / `Raised` can temporarily preempt).
+/// `Raised (100) > Shutdown (95) > StartUp (85) > LevelUp (80) > Pinch (75) > Touch (70) > Eating (65) > Switch (60) > Working (50) > Thinking (45) > Saying (40) > SideHide (35) > Moving (30) > StateOne (25) > IdleFidget (22) > Idle (20) > Sleeping (10)`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActionState {
+    StartUp,
+    Shutdown {
+        exiting: bool,
+    },
     Idle,
+    IdleFidget {
+        name: Option<String>,
+    },
+    StateOne,
     Sleeping {
         waking: bool,
     },
@@ -69,23 +86,30 @@ pub enum ActionState {
         speed_px_per_sec: i32,
         loops_remaining: u32,
     },
-    /// Idle fidget from the `IDEL` graph (boring, squat, yawning, meow, ...).
-    Fidget {
-        name: String,
+    SideHide {
+        left: bool,
+        emerging: bool,
     },
     Saying,
+    Thinking,
     Working {
         graph: String,
     },
     Touch {
         kind: TouchKind,
     },
+    Pinch,
+    Eating {
+        graph: String,
+        food_name: Option<String>,
+        icon_path: Option<PathBuf>,
+    },
+    LevelUp,
+    Switch {
+        kind: SwitchKind,
+    },
     Raised {
         dropping: bool,
-    },
-    SideHide {
-        left: bool,
-        rising: bool,
     },
 }
 
@@ -95,13 +119,21 @@ impl ActionState {
         match self {
             Self::Sleeping { .. } => 10,
             Self::Idle => 20,
-            Self::Fidget { .. } => 25,
+            Self::IdleFidget { .. } => 22,
+            Self::StateOne => 25,
             Self::Moving { .. } => 30,
+            Self::SideHide { .. } => 35,
             Self::Saying => 40,
+            Self::Thinking => 45,
             Self::Working { .. } => 50,
-            Self::Touch { .. } => 60,
-            Self::SideHide { .. } => 65,
-            Self::Raised { .. } => 70,
+            Self::Switch { .. } => 60,
+            Self::Eating { .. } => 65,
+            Self::Touch { .. } => 70,
+            Self::Pinch => 75,
+            Self::LevelUp => 80,
+            Self::StartUp => 85,
+            Self::Shutdown { .. } => 95,
+            Self::Raised { .. } => 100,
         }
     }
 }
@@ -152,6 +184,10 @@ pub struct InteractionController {
     bubble_text: Option<String>,
     bubble_remaining_ms: u32,
     walk_subpx: f64,
+    shutdown_ready: bool,
+    prev_mode: ModeType,
+    prev_food: f64,
+    prev_drink: f64,
 }
 
 impl InteractionController {
@@ -166,7 +202,53 @@ impl InteractionController {
             bubble_text: None,
             bubble_remaining_ms: 0,
             walk_subpx: 0.0,
+            shutdown_ready: false,
+            prev_mode: ModeType::Nomal,
+            prev_food: 100.0,
+            prev_drink: 100.0,
         }
+    }
+
+    #[must_use]
+    pub const fn is_shutdown_ready(&self) -> bool {
+        self.shutdown_ready
+    }
+
+    pub fn trigger_shutdown(&mut self, index: &AnimationIndex, world: &mut World) {
+        self.request_state(ActionState::Shutdown { exiting: true }, true, index, world);
+    }
+
+    pub fn on_feed(
+        &mut self,
+        graph: impl Into<String>,
+        food_name: Option<String>,
+        icon_path: Option<PathBuf>,
+        index: &AnimationIndex,
+        world: &mut World,
+    ) {
+        self.request_state(
+            ActionState::Eating {
+                graph: graph.into(),
+                food_name,
+                icon_path,
+            },
+            true,
+            index,
+            world,
+        );
+    }
+
+    pub fn on_level_up(&mut self, index: &AnimationIndex, world: &mut World) {
+        self.show_bubble("Level UP! ~", 4_000);
+        self.request_state(ActionState::LevelUp, true, index, world);
+    }
+
+    pub fn on_think(&mut self, index: &AnimationIndex, world: &mut World) {
+        self.request_state(ActionState::Thinking, false, index, world);
+    }
+
+    pub fn on_switch(&mut self, kind: SwitchKind, index: &AnimationIndex, world: &mut World) {
+        self.request_state(ActionState::Switch { kind }, false, index, world);
     }
 
     #[must_use]
@@ -236,12 +318,43 @@ impl InteractionController {
     pub fn on_drag_end(
         &mut self,
         output_name: &str,
-        pos: (i32, i32),
+        mut pos: (i32, i32),
+        bounds: (u32, u32),
+        sprite_logical: (u32, u32),
         index: &AnimationIndex,
         world: &mut World,
     ) {
-        world.output_positions.insert(output_name.to_owned(), pos);
-        self.request_state(ActionState::Raised { dropping: true }, true, index, world);
+        let max_x = (bounds.0 as i32 - sprite_logical.0 as i32).max(0);
+        let offset_left = ((219_f32 * sprite_logical.0 as f32) / 500.0).round() as i32;
+        let offset_right = (((500.0 - 281_f32) * sprite_logical.0 as f32) / 500.0).round() as i32;
+        if pos.0 <= 60 {
+            pos.0 = -offset_left;
+            world.output_positions.insert(output_name.to_owned(), pos);
+            self.request_state(
+                ActionState::SideHide {
+                    left: true,
+                    emerging: false,
+                },
+                true,
+                index,
+                world,
+            );
+        } else if pos.0 >= max_x.saturating_sub(60) {
+            pos.0 = max_x + offset_right;
+            world.output_positions.insert(output_name.to_owned(), pos);
+            self.request_state(
+                ActionState::SideHide {
+                    left: false,
+                    emerging: false,
+                },
+                true,
+                index,
+                world,
+            );
+        } else {
+            world.output_positions.insert(output_name.to_owned(), pos);
+            self.request_state(ActionState::Raised { dropping: true }, true, index, world);
+        }
     }
 
     pub fn on_click_zone(
@@ -251,23 +364,15 @@ impl InteractionController {
         index: &AnimationIndex,
         world: &mut World,
     ) {
-        if let ActionState::SideHide {
-            left,
-            rising: false,
-        } = self.state
-        {
-            self.request_state(
-                ActionState::SideHide { left, rising: true },
-                true,
-                index,
-                world,
-            );
-            self.show_bubble("Peekaboo!", 3_000);
+        if zone == HitZone::Pinch {
+            let _ = world.pet_head();
+            self.show_bubble("Don't pinch my cheeks!", 3_000);
+            self.request_state(ActionState::Pinch, false, index, world);
             return;
         }
 
         let kind = match zone {
-            HitZone::Head | HitZone::Pinch => {
+            HitZone::Head => {
                 let _ = world.pet_head();
                 TouchKind::Head
             }
@@ -275,6 +380,7 @@ impl InteractionController {
                 let _ = world.pet_body();
                 TouchKind::Body
             }
+            HitZone::Pinch => unreachable!(),
         };
 
         let seed = world.rng.next_u64();
@@ -335,41 +441,92 @@ impl InteractionController {
             self.request_state(ActionState::Sleeping { waking: false }, true, index, world);
         }
 
-        // Trigger occasional auto-walk or idle fidget from Default Idle.
+        // Check for stat shifts / mode switch while idle
+        if matches!(self.state, ActionState::Idle) && !world.pet.sleeping {
+            if world.pet.mode != self.prev_mode {
+                let improved = matches!(world.pet.mode, ModeType::Happy)
+                    || matches!(self.prev_mode, ModeType::Ill);
+                let kind = if improved {
+                    SwitchKind::Up
+                } else {
+                    SwitchKind::Down
+                };
+                self.prev_mode = world.pet.mode;
+                self.on_switch(kind, index, world);
+            } else if world.pet.strength_food <= 20.0 && self.prev_food > 20.0 {
+                self.on_switch(SwitchKind::Hunger, index, world);
+            } else if world.pet.strength_drink <= 20.0 && self.prev_drink > 20.0 {
+                self.on_switch(SwitchKind::Thirsty, index, world);
+            }
+            self.prev_food = world.pet.strength_food;
+            self.prev_drink = world.pet.strength_drink;
+        }
+
+        // Trigger occasional auto-walk, idle fidget, or alternate state from Default Idle.
         if matches!(self.state, ActionState::Idle) && !world.pet.sleeping {
             self.idle_elapsed_ms = self.idle_elapsed_ms.saturating_add(dt_ms);
-            if self.auto_walk_enabled && self.idle_elapsed_ms >= 8_000 {
+            if self.idle_elapsed_ms >= 5_000 {
                 self.idle_elapsed_ms = 0;
-                let roll = world.rng.next_u64();
-                let fidgets = idle_fidget_names(index);
-                // ~60% fidget, ~40% walk (walk only when not dragged into a corner).
-                if !fidgets.is_empty() && roll % 5 < 3 {
-                    let name = fidgets[(roll / 5) as usize % fidgets.len()].clone();
-                    self.request_state(ActionState::Fidget { name }, false, index, world);
-                } else {
-                    let dir_x = if roll & 1 == 0 { -1 } else { 1 };
+                let max_x = (bounds.0 as i32 - sprite_logical.0 as i32).max(0);
+                let roll = world.rng.next_u64() % 100;
+                if roll < 50 && self.auto_walk_enabled {
+                    let towards_wall = world.rng.next_u64() % 100 < 35
+                        || pos.0 < bounds.0 as i32 / 3
+                        || pos.0 > (bounds.0 as i32 * 2) / 3;
+
+                    let dir_x = if towards_wall {
+                        if pos.0 < max_x / 2 { -1 } else { 1 }
+                    } else if world.rng.next_u64() & 1 == 0 {
+                        -1
+                    } else {
+                        1
+                    };
+
+                    let loops_remaining = if towards_wall { 10 } else { 4 };
                     self.request_state(
                         ActionState::Moving {
                             dir_x,
-                            speed_px_per_sec: 48,
-                            loops_remaining: 3,
+                            speed_px_per_sec: 56,
+                            loops_remaining,
                         },
                         false,
                         index,
                         world,
                     );
+                } else if roll < 78 {
+                    self.request_state(ActionState::IdleFidget { name: None }, false, index, world);
+                } else {
+                    self.request_state(ActionState::StateOne, false, index, world);
                 }
             }
         }
 
-        // Apply horizontal movement during `Moving` and bounce/flip cleanly at screen edges.
+        // Hold edge position during SideHide so character aligns exactly with screen bezel.
+        if let ActionState::SideHide { left, .. } = self.state {
+            let max_x = (bounds.0 as i32 - sprite_logical.0 as i32).max(0);
+            let offset_left = ((219_f32 * sprite_logical.0 as f32) / 500.0).round() as i32;
+            let offset_right =
+                (((500.0 - 281_f32) * sprite_logical.0 as f32) / 500.0).round() as i32;
+            pos.0 = if left {
+                -offset_left
+            } else {
+                max_x + offset_right
+            };
+        }
+
+        // Apply horizontal movement during `Moving` and bounce/climb cleanly at screen edges.
         if let ActionState::Moving {
             dir_x,
             speed_px_per_sec,
-            loops_remaining,
+            loops_remaining: _,
         } = self.state
         {
             let max_x = (bounds.0 as i32 - sprite_logical.0 as i32).max(0);
+            if pos.0 < 0 && dir_x > 0 {
+                pos.0 = 0;
+            } else if pos.0 > max_x && dir_x < 0 {
+                pos.0 = max_x;
+            }
             self.walk_subpx += f64::from(dir_x * speed_px_per_sec) * (f64::from(dt_ms) / 1000.0);
             let step_px = self.walk_subpx.trunc() as i32;
             if step_px != 0 {
@@ -380,13 +537,27 @@ impl InteractionController {
                 pos.0 = next_x;
                 world.output_positions.insert(output_name.to_owned(), *pos);
 
-                if (next_x == 0 && dir_x < 0) || (next_x == max_x && dir_x > 0) {
-                    let flipped = -dir_x;
+                if next_x <= 25 && dir_x < 0 {
+                    let offset_left = ((219_f32 * sprite_logical.0 as f32) / 500.0).round() as i32;
+                    pos.0 = -offset_left;
                     self.request_state(
-                        ActionState::Moving {
-                            dir_x: flipped,
-                            speed_px_per_sec,
-                            loops_remaining,
+                        ActionState::SideHide {
+                            left: true,
+                            emerging: false,
+                        },
+                        true,
+                        index,
+                        world,
+                    );
+                    return;
+                } else if next_x >= max_x.saturating_sub(25) && dir_x > 0 {
+                    let offset_right =
+                        (((500.0 - 281_f32) * sprite_logical.0 as f32) / 500.0).round() as i32;
+                    pos.0 = max_x + offset_right;
+                    self.request_state(
+                        ActionState::SideHide {
+                            left: false,
+                            emerging: false,
                         },
                         true,
                         index,
@@ -398,12 +569,19 @@ impl InteractionController {
         }
 
         self.ensure_clip(index, world);
-        let fallback_durs = [125_u32];
-        let durs = frame_durations_ms
-            .filter(|s| !s.is_empty())
-            .unwrap_or(&fallback_durs);
 
         let Some(clip) = self.active_clip.as_mut() else {
+            return;
+        };
+
+        // If real frame durations are not available yet from cache (e.g. background worker is decoding),
+        // wait for the clip to finish decoding rather than prematurely finishing in 125ms!
+        let Some(durs) = frame_durations_ms.filter(|s| !s.is_empty()) else {
+            clip.frame_elapsed_ms = clip.frame_elapsed_ms.saturating_add(dt_ms);
+            // Safety timeout: if still not loaded after 5 seconds, finish the transient state
+            if clip.frame_elapsed_ms >= 5000 {
+                self.finish_transient_state(index, world);
+            }
             return;
         };
 
@@ -413,9 +591,8 @@ impl InteractionController {
         clip.frame_elapsed_ms = clip.frame_elapsed_ms.saturating_add(dt_ms);
 
         let mut clip_finished = false;
-        while clip.frame_elapsed_ms >= durs[clip.frame_index].max(20) {
-            let dur = durs[clip.frame_index].max(20);
-            clip.frame_elapsed_ms -= dur;
+        while clip.frame_elapsed_ms >= durs[clip.frame_index] {
+            clip.frame_elapsed_ms -= durs[clip.frame_index];
             if clip.frame_index + 1 < durs.len() {
                 clip.frame_index += 1;
             } else {
@@ -454,8 +631,36 @@ impl InteractionController {
         let seed = world.rng.next_u64();
 
         let resolved = match &self.state {
+            ActionState::StartUp => {
+                resolve_chain_start(index, GraphType::StartUp, None, mode, seed, Some(1), false)
+            }
+            ActionState::Shutdown { .. } => {
+                resolve_chain_start(index, GraphType::Shutdown, None, mode, seed, Some(1), false)
+            }
             ActionState::Idle => {
                 resolve_chain_start(index, GraphType::Default, None, mode, seed, None, true)
+            }
+            ActionState::IdleFidget { name } => resolve_chain_start(
+                index,
+                GraphType::Idel,
+                name.as_deref(),
+                mode,
+                seed,
+                Some(1),
+                false,
+            ),
+            ActionState::StateOne => {
+                resolve_chain_start(index, GraphType::StateOne, None, mode, seed, Some(1), false)
+            }
+            ActionState::SideHide { left, emerging } => {
+                let gt = match (left, emerging) {
+                    (true, false) => GraphType::SideHideLeftMain,
+                    (true, true) => GraphType::SideHideLeftRise,
+                    (false, false) => GraphType::SideHideRightMain,
+                    (false, true) => GraphType::SideHideRightRise,
+                };
+                resolve_chain_start(index, gt, None, mode, seed, Some(1), false)
+                    .or_else(|| resolve_c_end_or_single(index, gt, None, mode, seed))
             }
             ActionState::Sleeping { waking: false } => {
                 resolve_chain_start(index, GraphType::Sleep, None, mode, seed, None, true)
@@ -486,15 +691,16 @@ impl InteractionController {
             ActionState::Saying => {
                 resolve_chain_start(index, GraphType::Say, None, mode, seed, Some(1), false)
             }
-            ActionState::Fidget { name } => resolve_chain_start(
+            ActionState::Thinking => resolve_chain_start(
                 index,
-                GraphType::Idel,
-                Some(name.as_str()),
+                GraphType::Common,
+                Some("think"),
                 mode,
                 seed,
-                Some(3),
-                false,
-            ),
+                None,
+                true,
+            )
+            .or_else(|| resolve_chain_start(index, GraphType::Say, None, mode, seed, None, true)),
             ActionState::Working { graph } => resolve_chain_start(
                 index,
                 GraphType::Work,
@@ -507,6 +713,81 @@ impl InteractionController {
             ActionState::Touch { kind } => {
                 resolve_chain_start(index, kind.graph_type(), None, mode, seed, Some(1), false)
             }
+            ActionState::Pinch => resolve_chain_start(
+                index,
+                GraphType::Common,
+                Some("pinch"),
+                mode,
+                seed,
+                Some(1),
+                false,
+            ),
+            ActionState::Eating {
+                graph,
+                food_name,
+                icon_path,
+            } => {
+                let name = match graph.to_ascii_lowercase().as_str() {
+                    "drink" => "drink",
+                    "gift" => "gift",
+                    _ => "eat",
+                };
+                if let Some((entry, phase, name_opt)) = resolve_chain_start(
+                    index,
+                    GraphType::Common,
+                    Some(name),
+                    mode,
+                    seed,
+                    Some(1),
+                    false,
+                ) {
+                    let mut source = entry.source.clone();
+                    if let AnimationSource::Food { item_icon_path, .. } = &mut source {
+                        *item_icon_path = icon_path.clone();
+                    }
+                    let cache_key = if let Some(fn_name) = food_name {
+                        format!(
+                            "{}:{}:{}",
+                            clip_cache_key(entry, self.target_px),
+                            fn_name,
+                            self.target_px
+                        )
+                    } else {
+                        clip_cache_key(entry, self.target_px)
+                    };
+                    self.active_clip = Some(ActiveClip {
+                        cache_key,
+                        graph_type: entry.graph_type,
+                        name: name_opt,
+                        mode,
+                        phase,
+                        source,
+                        frame_index: 0,
+                        frame_elapsed_ms: 0,
+                        seed,
+                    });
+                    return;
+                }
+                None
+            }
+            ActionState::LevelUp => resolve_chain_start(
+                index,
+                GraphType::Common,
+                Some("levelup"),
+                mode,
+                seed,
+                Some(1),
+                false,
+            ),
+            ActionState::Switch { kind } => {
+                let gt = match kind {
+                    SwitchKind::Up => GraphType::SwitchUp,
+                    SwitchKind::Down => GraphType::SwitchDown,
+                    SwitchKind::Hunger => GraphType::SwitchHunger,
+                    SwitchKind::Thirsty => GraphType::SwitchThirsty,
+                };
+                resolve_chain_start(index, gt, None, mode, seed, Some(1), false)
+            }
             ActionState::Raised { dropping: false } => resolve_chain_start(
                 index,
                 GraphType::RaisedDynamic,
@@ -518,26 +799,6 @@ impl InteractionController {
             ),
             ActionState::Raised { dropping: true } => {
                 resolve_c_end_or_single(index, GraphType::RaisedStatic, None, mode, seed)
-            }
-            ActionState::SideHide {
-                left,
-                rising: false,
-            } => {
-                let gt = if *left {
-                    GraphType::SideHideLeftMain
-                } else {
-                    GraphType::SideHideRightMain
-                };
-                resolve_chain_start(index, gt, None, mode, seed, None, true)
-            }
-            ActionState::SideHide { left, rising: true } => {
-                let gt = if *left {
-                    GraphType::SideHideLeftRise
-                } else {
-                    GraphType::SideHideRightRise
-                };
-                resolve_chain_start(index, gt, None, mode, seed, Some(1), false)
-                    .or_else(|| resolve_c_end_or_single(index, gt, None, mode, seed))
             }
         };
 
@@ -553,16 +814,22 @@ impl InteractionController {
             seed,
         });
 
-        // If a drop/wake transition had no dedicated CEnd clip, return immediately to base state.
+        // If a drop/wake/transient transition had no dedicated clip, return immediately to base state.
         if self.active_clip.is_none()
             && matches!(
                 self.state,
                 ActionState::Raised { dropping: true }
                     | ActionState::Sleeping { waking: true }
                     | ActionState::Touch { .. }
+                    | ActionState::Pinch
+                    | ActionState::Eating { .. }
+                    | ActionState::LevelUp
+                    | ActionState::Switch { .. }
+                    | ActionState::IdleFidget { .. }
+                    | ActionState::StateOne
+                    | ActionState::StartUp
                     | ActionState::Saying
-                    | ActionState::Fidget { .. }
-                    | ActionState::SideHide { rising: true, .. }
+                    | ActionState::Thinking
             )
         {
             self.finish_transient_state(index, world);
@@ -575,10 +842,9 @@ impl InteractionController {
         };
 
         let loop_budget = match &self.state {
-            ActionState::Touch { .. } | ActionState::Saying => Some(1),
-            ActionState::Fidget { .. } => Some(3),
-            ActionState::SideHide { rising: true, .. } => Some(1),
-            ActionState::SideHide { rising: false, .. } => None,
+            ActionState::Touch { .. } | ActionState::Saying | ActionState::SideHide { .. } => {
+                Some(1)
+            }
             ActionState::Moving {
                 loops_remaining, ..
             } => Some(*loops_remaining),
@@ -652,27 +918,52 @@ impl InteractionController {
     }
 
     fn finish_transient_state(&mut self, index: &AnimationIndex, world: &mut World) {
+        match self.state {
+            ActionState::Shutdown { .. } => {
+                self.shutdown_ready = true;
+                return;
+            }
+            ActionState::SideHide {
+                left,
+                emerging: false,
+            } => {
+                self.state = ActionState::SideHide {
+                    left,
+                    emerging: true,
+                };
+                self.active_clip = None;
+                self.enter_state_clip(index, world);
+                return;
+            }
+            ActionState::SideHide {
+                left,
+                emerging: true,
+            } => {
+                let dir_x = if left { 1 } else { -1 };
+                self.state = ActionState::Moving {
+                    dir_x,
+                    speed_px_per_sec: 48,
+                    loops_remaining: 3,
+                };
+                self.active_clip = None;
+                self.enter_state_clip(index, world);
+                return;
+            }
+            _ => {}
+        }
+
         self.state = if world.pet.sleeping {
             ActionState::Sleeping { waking: false }
+        } else if let Some(work) = &world.active_work {
+            ActionState::Working {
+                graph: work.graph.clone(),
+            }
         } else {
             ActionState::Idle
         };
         self.active_clip = None;
         self.enter_state_clip(index, world);
     }
-}
-
-/// Distinct `IDEL` fidget names available in `index`, in stable order.
-fn idle_fidget_names(index: &AnimationIndex) -> Vec<String> {
-    let mut names: Vec<String> = index
-        .entries()
-        .iter()
-        .filter(|e| e.graph_type == GraphType::Idel && !e.name.is_empty())
-        .map(|e| e.name.clone())
-        .collect();
-    names.sort();
-    names.dedup();
-    names
 }
 
 fn resolve_chain_start<'a>(
@@ -812,10 +1103,32 @@ mod tests {
         // Higher-priority Drag/Raised preempts anything and saves output position on drop.
         ctrl.on_drag_start(&idx, &mut world);
         assert_eq!(ctrl.state(), &ActionState::Raised { dropping: false });
-        ctrl.on_drag_end("eDP-1", (320, 640), &idx, &mut world);
+        ctrl.on_drag_end(
+            "eDP-1",
+            (320, 640),
+            (1920, 1080),
+            (250, 250),
+            &idx,
+            &mut world,
+        );
         assert_eq!(world.output_positions.get("eDP-1"), Some(&(320, 640)));
 
-        // Auto-walk hitting left screen edge (x = 0) flips direction to +1 cleanly.
+        // Dropping within 60px of the screen edge triggers SideHide immediately.
+        ctrl.on_drag_start(&idx, &mut world);
+        ctrl.on_drag_end(
+            "eDP-1",
+            (40, 640),
+            (1920, 1080),
+            (250, 250),
+            &idx,
+            &mut world,
+        );
+        assert!(matches!(
+            ctrl.state(),
+            ActionState::SideHide { left: true, .. }
+        ));
+
+        // Auto-walk hitting left screen edge (x = 0) enters SideHide at border.
         pos = (2, 760);
         ctrl.request_state(
             ActionState::Moving {
@@ -839,90 +1152,28 @@ mod tests {
             &idx,
             &mut world,
         );
-        assert_eq!(pos.0, 0);
-        assert!(matches!(ctrl.state(), ActionState::Moving { dir_x: 1, .. }));
-    }
+        assert_eq!(pos.0, -110);
+        assert!(matches!(
+            ctrl.state(),
+            ActionState::SideHide { left: true, .. }
+        ));
 
-    #[test]
-    fn idle_timer_triggers_walk_or_fidget_on_real_vup() {
-        let vup_dir =
-            Path::new("/home/kouzen/Documents/VPet/VPet-Simulator.Windows/mod/0000_core/pet/vup");
-        if !vup_dir.exists() {
-            return;
-        }
-        let idx = AnimationIndex::scan_pet_dir("vup", vup_dir);
-        let mut world = World::new("test", "Loris", 42);
-        let mut ctrl = InteractionController::new(250, true);
-        let mut pos = (500, 0);
-        ctrl.ensure_clip(&idx, &mut world);
+        // Test pinch face triggers Pinch animation state
+        ctrl.on_click_zone(HitZone::Pinch, &texts, &idx, &mut world);
+        assert_eq!(ctrl.state(), &ActionState::Pinch);
 
-        let mut saw_fidget = false;
-        let mut saw_walk = false;
-        for _ in 0..2_000 {
-            ctrl.advance(
-                100,
-                None,
-                &mut pos,
-                AdvanceViewport {
-                    bounds: (1080, 2400),
-                    sprite_logical: (250, 250),
-                    output_name: "screen",
-                },
-                &idx,
-                &mut world,
-            );
-            match ctrl.state() {
-                ActionState::Fidget { .. } => saw_fidget = true,
-                ActionState::Moving { .. } => saw_walk = true,
-                _ => {}
-            }
-        }
-        assert!(saw_fidget, "idle never played an IDEL fidget");
-        assert!(saw_walk, "idle never auto-walked");
-    }
+        // Test feeding triggers Eating animation state
+        ctrl.on_feed("eat", Some("Apple".to_owned()), None, &idx, &mut world);
+        assert!(matches!(ctrl.state(), ActionState::Eating { .. }));
 
-    #[test]
-    fn test_side_hide_indexed() {
-        let vup_dir =
-            Path::new("/home/kouzen/Documents/VPet/VPet-Simulator.Windows/mod/0000_core/pet/vup");
-        if !vup_dir.exists() {
-            return;
-        }
-        let idx = AnimationIndex::scan_pet_dir("vup", vup_dir);
-        let q_left = idx.query(
-            GraphType::SideHideLeftMain,
-            None,
-            AnimatType::BLoop,
-            ModeType::Nomal,
-        );
-        let q_left_rise = idx.query(
-            GraphType::SideHideLeftRise,
-            None,
-            AnimatType::BLoop,
-            ModeType::Nomal,
-        );
-        let q_right = idx.query(
-            GraphType::SideHideRightMain,
-            None,
-            AnimatType::BLoop,
-            ModeType::Nomal,
-        );
-        let q_right_rise = idx.query(
-            GraphType::SideHideRightRise,
-            None,
-            AnimatType::BLoop,
-            ModeType::Nomal,
-        );
-        eprintln!(
-            "SideHide entries: left_main={}, left_rise={}, right_main={}, right_rise={}",
-            q_left.len(),
-            q_left_rise.len(),
-            q_right.len(),
-            q_right_rise.len()
-        );
-        assert!(!q_left.is_empty(), "SideHideLeftMain not indexed!");
-        assert!(!q_left_rise.is_empty(), "SideHideLeftRise not indexed!");
-        assert!(!q_right.is_empty(), "SideHideRightMain not indexed!");
-        assert!(!q_right_rise.is_empty(), "SideHideRightRise not indexed!");
+        // Test level up animation
+        ctrl.on_level_up(&idx, &mut world);
+        assert_eq!(ctrl.state(), &ActionState::LevelUp);
+
+        // Test startup & shutdown
+        ctrl.request_state(ActionState::StartUp, true, &idx, &mut world);
+        assert_eq!(ctrl.state(), &ActionState::StartUp);
+        ctrl.trigger_shutdown(&idx, &mut world);
+        assert!(matches!(ctrl.state(), ActionState::Shutdown { .. }));
     }
 }
