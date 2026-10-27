@@ -444,7 +444,15 @@ class MainActivity : AppCompatActivity() {
                     .putString("ai_base", etAiBase.text.toString().trim())
                     .putString("ai_model", etAiModel.text.toString().trim())
                     .apply()
-                Toast.makeText(this@MainActivity, "AI Config Saved!", Toast.LENGTH_SHORT).show()
+                // Restart overlay service if already active to apply new AI endpoint immediately
+                val intent = Intent(this@MainActivity, PetOverlayService::class.java)
+                stopService(intent)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
+                Toast.makeText(this@MainActivity, "AI Config Saved and Pet Reloaded!", Toast.LENGTH_SHORT).show()
             }
         }
         aiCard.addView(btnSaveAi)

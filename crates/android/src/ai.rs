@@ -182,6 +182,12 @@ fn execute_chat_query(config: &AiConfig, user_prompt: &str) -> Result<String, St
         .read_to_string()
         .map_err(|e| format!("failed to read response body: {e}"))?;
 
+    if let Ok(err_obj) = serde_json::from_str::<serde_json::Value>(&raw_text)
+        && let Some(err_msg) = err_obj.pointer("/error/message").and_then(|v| v.as_str())
+    {
+        return Err(err_msg.to_owned());
+    }
+
     if let Ok(parsed) = serde_json::from_str::<ChatResponse>(&raw_text)
         && let Some(first) = parsed.choices.first()
     {

@@ -63,6 +63,10 @@ class PetOverlayService : Service() {
             when (intent?.action) {
                 Intent.ACTION_SCREEN_OFF -> {
                     isRunning = false
+                    handler.removeCallbacks(tickRunnable)
+                    if (enginePtr != 0L) {
+                        PetBridge.nativeSave(enginePtr)
+                    }
                 }
                 Intent.ACTION_SCREEN_ON -> {
                     if (!isRunning) {
@@ -173,8 +177,11 @@ class PetOverlayService : Service() {
             bubblePadPx = bubblePadPx,
             onMoveDelta = { dx, dy ->
                 layoutParams?.let { params ->
-                    params.x += dx
-                    params.y += dy
+                    val dm = resources.displayMetrics
+                    val maxX = (dm.widthPixels - (petView?.bitmapWidth ?: 280)).coerceAtLeast(0)
+                    val maxY = (dm.heightPixels - (petView?.bitmapHeight ?: 350)).coerceAtLeast(0)
+                    params.x = (params.x + dx).coerceIn(0, maxX)
+                    params.y = (params.y + dy).coerceIn(0, maxY)
                     if (enginePtr != 0L) {
                         PetBridge.nativeSetPos(enginePtr, params.x, params.y)
                     }
@@ -199,7 +206,10 @@ class PetOverlayService : Service() {
             },
             onActionTouch = { type, x, y ->
                 if (enginePtr != 0L) {
-                    PetBridge.nativeTouch(enginePtr, type, x, y)
+                    val result = PetBridge.nativeTouch(enginePtr, type, x, y)
+                    if (result == "bubble_tap") {
+                        showFloatingMenu(defaultTab = "chat")
+                    }
                 }
             },
             onLongPressAction = {
@@ -660,6 +670,22 @@ class PetOverlayService : Service() {
             .build()
     }
 
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val dm = resources.displayMetrics
+        if (enginePtr != 0L) {
+            PetBridge.nativeSetScreenBounds(enginePtr, dm.widthPixels, dm.heightPixels)
+            layoutParams?.let { params ->
+                val maxX = (dm.widthPixels - (petView?.bitmapWidth ?: 280)).coerceAtLeast(0)
+                val maxY = (dm.heightPixels - (petView?.bitmapHeight ?: 350)).coerceAtLeast(0)
+                params.x = params.x.coerceIn(0, maxX)
+                params.y = params.y.coerceIn(0, maxY)
+                PetBridge.nativeSetPos(enginePtr, params.x, params.y)
+                windowManager?.updateViewLayout(petView, params)
+            }
+        }
+    }
+
     override fun onDestroy() {
         isRunning = false
         handler.removeCallbacks(tickRunnable)
@@ -672,6 +698,7 @@ class PetOverlayService : Service() {
 
         if (petView != null && windowManager != null) {
             windowManager?.removeView(petView)
+            petView?.renderBitmap?.recycle()
             petView = null
         }
 

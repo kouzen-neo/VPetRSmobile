@@ -684,6 +684,14 @@ pub extern "system" fn Java_org_vpet_mobile_PetBridge_nativeRender(
             let src_row = &src_bytes[row * comp_w * 4..(row * comp_w + min_w) * 4];
             unsafe {
                 std::ptr::copy_nonoverlapping(src_row.as_ptr(), dst.add(row * stride), min_w * 4);
+                if stride > min_w * 4 {
+                    std::ptr::write_bytes(dst.add(row * stride + min_w * 4), 0, stride - min_w * 4);
+                }
+            }
+        }
+        for row in min_h..info.height as usize {
+            unsafe {
+                std::ptr::write_bytes(dst.add(row * stride), 0, stride);
             }
         }
 
