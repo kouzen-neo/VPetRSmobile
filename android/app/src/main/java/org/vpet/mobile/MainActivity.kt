@@ -339,9 +339,24 @@ class MainActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { setMargins(0, 0, 0, 32) }
+            ).apply { setMargins(0, 0, 0, 16) }
         }
         root.addView(sbScale)
+
+        val cbAutoWalk = android.widget.CheckBox(this).apply {
+            text = "Enable Auto-Walk & Idle Animations (Yawning, bubbles, cat meow, walking)"
+            textSize = 13f
+            setTextColor(0xFF0F172A.toInt())
+            isChecked = prefs.getBoolean("pet_auto_walk", true)
+            setOnCheckedChangeListener { _, isChecked ->
+                prefs.edit().putBoolean("pet_auto_walk", isChecked).apply()
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, 0, 0, 28) }
+        }
+        root.addView(cbAutoWalk)
 
         // AI Chat Settings Card
         val aiCard = LinearLayout(this).apply {

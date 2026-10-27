@@ -43,4 +43,14 @@ object PetBridge {
     external fun nativeSay(enginePtr: Long, text: String)
 
     external fun nativeSave(enginePtr: Long)
+
+    external fun nativeSetPos(enginePtr: Long, x: Int, y: Int)
+
+    external fun nativeGetPosX(enginePtr: Long): Int
+
+    external fun nativeGetPosY(enginePtr: Long): Int
+
+    external fun nativeSetScreenBounds(enginePtr: Long, width: Int, height: Int)
+
+    external fun nativeSetAutoWalk(enginePtr: Long, enabled: Boolean)
 }

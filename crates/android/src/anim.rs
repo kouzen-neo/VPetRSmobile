@@ -69,6 +69,10 @@ pub enum ActionState {
         speed_px_per_sec: i32,
         loops_remaining: u32,
     },
+    /// Idle fidget from the `IDEL` graph (boring, squat, yawning, meow, ...).
+    Fidget {
+        name: String,
+    },
     Saying,
     Working {
         graph: String,
@@ -87,6 +91,7 @@ impl ActionState {
         match self {
             Self::Sleeping { .. } => 10,
             Self::Idle => 20,
+            Self::Fidget { .. } => 25,
             Self::Moving { .. } => 30,
             Self::Saying => 40,
             Self::Working { .. } => 50,
@@ -315,17 +320,25 @@ impl InteractionController {
             self.idle_elapsed_ms = self.idle_elapsed_ms.saturating_add(dt_ms);
             if self.auto_walk_enabled && self.idle_elapsed_ms >= 8_000 {
                 self.idle_elapsed_ms = 0;
-                let dir_x = if world.rng.next_u64() & 1 == 0 { -1 } else { 1 };
-                self.request_state(
-                    ActionState::Moving {
-                        dir_x,
-                        speed_px_per_sec: 48,
-                        loops_remaining: 3,
-                    },
-                    false,
-                    index,
-                    world,
-                );
+                let roll = world.rng.next_u64();
+                let fidgets = idle_fidget_names(index);
+                // ~60% fidget, ~40% walk (walk only when not dragged into a corner).
+                if !fidgets.is_empty() && roll % 5 < 3 {
+                    let name = fidgets[(roll / 5) as usize % fidgets.len()].clone();
+                    self.request_state(ActionState::Fidget { name }, false, index, world);
+                } else {
+                    let dir_x = if roll & 1 == 0 { -1 } else { 1 };
+                    self.request_state(
+                        ActionState::Moving {
+                            dir_x,
+                            speed_px_per_sec: 48,
+                            loops_remaining: 3,
+                        },
+                        false,
+                        index,
+                        world,
+                    );
+                }
             }
         }
 
@@ -453,6 +466,15 @@ impl InteractionController {
             ActionState::Saying => {
                 resolve_chain_start(index, GraphType::Say, None, mode, seed, Some(1), false)
             }
+            ActionState::Fidget { name } => resolve_chain_start(
+                index,
+                GraphType::Idel,
+                Some(name.as_str()),
+                mode,
+                seed,
+                Some(3),
+                false,
+            ),
             ActionState::Working { graph } => resolve_chain_start(
                 index,
                 GraphType::Work,
@@ -499,6 +521,7 @@ impl InteractionController {
                     | ActionState::Sleeping { waking: true }
                     | ActionState::Touch { .. }
                     | ActionState::Saying
+                    | ActionState::Fidget { .. }
             )
         {
             self.finish_transient_state(index, world);
@@ -512,6 +535,7 @@ impl InteractionController {
 
         let loop_budget = match &self.state {
             ActionState::Touch { .. } | ActionState::Saying => Some(1),
+            ActionState::Fidget { .. } => Some(3),
             ActionState::Moving {
                 loops_remaining, ..
             } => Some(*loops_remaining),
@@ -593,6 +617,19 @@ impl InteractionController {
         self.active_clip = None;
         self.enter_state_clip(index, world);
     }
+}
+
+/// Distinct `IDEL` fidget names available in `index`, in stable order.
+fn idle_fidget_names(index: &AnimationIndex) -> Vec<String> {
+    let mut names: Vec<String> = index
+        .entries()
+        .iter()
+        .filter(|e| e.graph_type == GraphType::Idel && !e.name.is_empty())
+        .map(|e| e.name.clone())
+        .collect();
+    names.sort();
+    names.dedup();
+    names
 }
 
 fn resolve_chain_start<'a>(
@@ -761,5 +798,43 @@ mod tests {
         );
         assert_eq!(pos.0, 0);
         assert!(matches!(ctrl.state(), ActionState::Moving { dir_x: 1, .. }));
+    }
+
+    #[test]
+    fn idle_timer_triggers_walk_or_fidget_on_real_vup() {
+        let vup_dir =
+            Path::new("/home/kouzen/Documents/VPet/VPet-Simulator.Windows/mod/0000_core/pet/vup");
+        if !vup_dir.exists() {
+            return;
+        }
+        let idx = AnimationIndex::scan_pet_dir("vup", vup_dir);
+        let mut world = World::new("test", "Loris", 42);
+        let mut ctrl = InteractionController::new(250, true);
+        let mut pos = (500, 0);
+        ctrl.ensure_clip(&idx, &mut world);
+
+        let mut saw_fidget = false;
+        let mut saw_walk = false;
+        for _ in 0..2_000 {
+            ctrl.advance(
+                100,
+                None,
+                &mut pos,
+                AdvanceViewport {
+                    bounds: (1080, 2400),
+                    sprite_logical: (250, 250),
+                    output_name: "screen",
+                },
+                &idx,
+                &mut world,
+            );
+            match ctrl.state() {
+                ActionState::Fidget { .. } => saw_fidget = true,
+                ActionState::Moving { .. } => saw_walk = true,
+                _ => {}
+            }
+        }
+        assert!(saw_fidget, "idle never played an IDEL fidget");
+        assert!(saw_walk, "idle never auto-walked");
     }
 }

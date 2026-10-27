@@ -54,6 +54,7 @@ class PetOverlayService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private var isRunning = false
     private var lastFrameTime = 0L
+    private var isDraggingPet = false
 
     private lateinit var prefs: SharedPreferences
 
@@ -83,6 +84,18 @@ class PetOverlayService : Service() {
             lastFrameTime = now
 
             val needsRender = PetBridge.nativeTick(enginePtr, dt)
+
+            // Sync walking position from native engine if pet is moving
+            if (!isDraggingPet) {
+                val newX = PetBridge.nativeGetPosX(enginePtr)
+                layoutParams?.let { params ->
+                    if (params.x != newX) {
+                        params.x = newX
+                        windowManager?.updateViewLayout(petView, params)
+                    }
+                }
+            }
+
             if (needsRender) {
                 petView?.let { view ->
                     PetBridge.nativeRender(enginePtr, view.renderBitmap)
@@ -162,14 +175,22 @@ class PetOverlayService : Service() {
                 layoutParams?.let { params ->
                     params.x += dx
                     params.y += dy
+                    if (enginePtr != 0L) {
+                        PetBridge.nativeSetPos(enginePtr, params.x, params.y)
+                    }
                     windowManager?.updateViewLayout(petView, params)
                 }
             },
             onDragStart = {
+                isDraggingPet = true
                 dismissMenu()
             },
             onDragEnd = {
+                isDraggingPet = false
                 layoutParams?.let { params ->
+                    if (enginePtr != 0L) {
+                        PetBridge.nativeSetPos(enginePtr, params.x, params.y)
+                    }
                     prefs.edit()
                         .putInt("pet_pos_x", params.x)
                         .putInt("pet_pos_y", params.y)
@@ -185,6 +206,12 @@ class PetOverlayService : Service() {
                 showFloatingMenu()
             }
         )
+
+        val dm = resources.displayMetrics
+        PetBridge.nativeSetScreenBounds(enginePtr, dm.widthPixels, dm.heightPixels)
+        PetBridge.nativeSetPos(enginePtr, savedX, savedY)
+        val autoWalkPref = prefs.getBoolean("pet_auto_walk", true)
+        PetBridge.nativeSetAutoWalk(enginePtr, autoWalkPref)
 
         windowManager?.addView(petView, layoutParams)
 

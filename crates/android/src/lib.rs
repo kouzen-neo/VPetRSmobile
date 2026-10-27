@@ -67,6 +67,7 @@ pub struct MobileEngine {
     pub target_px: u32,
     pub bubble_pad_px: u32,
     pub pos: (i32, i32),
+    pub screen_bounds: (u32, u32),
     pub last_clip_key: String,
     pub last_frame_idx: usize,
     pub last_bubble: Option<String>,
@@ -109,7 +110,7 @@ impl MobileEngine {
             World::new("default", "Loris", seed)
         });
 
-        let mut anim = InteractionController::new(target_px, false);
+        let mut anim = InteractionController::new(target_px, true);
         anim.ensure_clip(&anim_index, &mut world);
 
         let cache = FrameCache::new(64 * 1024 * 1024);
@@ -184,6 +185,7 @@ impl MobileEngine {
             target_px,
             bubble_pad_px,
             pos: (0, 0),
+            screen_bounds: (1080, 2400),
             last_clip_key: String::new(),
             last_frame_idx: usize::MAX,
             last_bubble: None,
@@ -209,7 +211,7 @@ impl MobileEngine {
             .map(|clip| clip.frames.iter().map(|f| f.duration_ms).collect());
 
         let vp = AdvanceViewport {
-            bounds: (1080, 2400),
+            bounds: self.screen_bounds,
             sprite_logical: (self.target_px, self.target_px),
             output_name: "screen",
         };
@@ -447,6 +449,18 @@ impl MobileEngine {
             .request_state(ActionState::Idle, true, &self.anim_index, &mut self.world);
         self.anim.show_bubble("Break time!", 3_000);
         true
+    }
+
+    pub fn set_pos(&mut self, x: i32, y: i32) {
+        self.pos = (x, y);
+    }
+
+    pub fn set_screen_bounds(&mut self, w: u32, h: u32) {
+        self.screen_bounds = (w.max(300), h.max(400));
+    }
+
+    pub fn set_auto_walk(&mut self, enabled: bool) {
+        self.anim.set_auto_walk(enabled);
     }
 
     pub fn get_status_json(&self) -> String {
@@ -815,5 +829,72 @@ pub extern "system" fn Java_org_vpet_mobile_PetBridge_nativeSave(
     if engine_ptr != 0 {
         let engine = unsafe { &mut *(engine_ptr as *mut MobileEngine) };
         let _ = engine.save_store.save_world(&engine.world);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_vpet_mobile_PetBridge_nativeSetPos(
+    _env: JNIEnv,
+    _class: JClass,
+    engine_ptr: jlong,
+    x: jint,
+    y: jint,
+) {
+    if engine_ptr != 0 {
+        let engine = unsafe { &mut *(engine_ptr as *mut MobileEngine) };
+        engine.set_pos(x, y);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_vpet_mobile_PetBridge_nativeGetPosX(
+    _env: JNIEnv,
+    _class: JClass,
+    engine_ptr: jlong,
+) -> jint {
+    if engine_ptr == 0 {
+        return 0;
+    }
+    let engine = unsafe { &*(engine_ptr as *const MobileEngine) };
+    engine.pos.0
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_vpet_mobile_PetBridge_nativeGetPosY(
+    _env: JNIEnv,
+    _class: JClass,
+    engine_ptr: jlong,
+) -> jint {
+    if engine_ptr == 0 {
+        return 0;
+    }
+    let engine = unsafe { &*(engine_ptr as *const MobileEngine) };
+    engine.pos.1
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_vpet_mobile_PetBridge_nativeSetScreenBounds(
+    _env: JNIEnv,
+    _class: JClass,
+    engine_ptr: jlong,
+    width: jint,
+    height: jint,
+) {
+    if engine_ptr != 0 {
+        let engine = unsafe { &mut *(engine_ptr as *mut MobileEngine) };
+        engine.set_screen_bounds(width as u32, height as u32);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_vpet_mobile_PetBridge_nativeSetAutoWalk(
+    _env: JNIEnv,
+    _class: JClass,
+    engine_ptr: jlong,
+    enabled: jboolean,
+) {
+    if engine_ptr != 0 {
+        let engine = unsafe { &mut *(engine_ptr as *mut MobileEngine) };
+        engine.set_auto_walk(enabled == JNI_TRUE);
     }
 }
