@@ -19,19 +19,62 @@ pub fn compose_food_animation(
     target_size: u32,
 ) -> DecodedClip {
     let scale = target_size as f32 / 500.0;
-    let mut out = Vec::new();
-    let mut elapsed_ms = 0_u32;
 
+    let mut boundaries = std::collections::BTreeSet::new();
+    boundaries.insert(0_u32);
+
+    let mut total_t = 0_u32;
+    if let Some(back) = back_layer {
+        let mut t = 0_u32;
+        for f in back.frames.iter() {
+            t = t.saturating_add(f.duration_ms);
+            boundaries.insert(t);
+        }
+        total_t = total_t.max(t);
+    }
+    if let Some(front) = front_layer {
+        let mut t = 0_u32;
+        for f in front.frames.iter() {
+            t = t.saturating_add(f.duration_ms);
+            boundaries.insert(t);
+        }
+        total_t = total_t.max(t);
+    }
+    let mut t = 0_u32;
     for kf in keyframes {
+        t = t.saturating_add(kf.duration_ms);
+        boundaries.insert(t);
+    }
+    total_t = total_t.max(t);
+
+    if boundaries.len() <= 1 || total_t == 0 {
+        if let Some(back) = back_layer {
+            return back.clone();
+        }
+        return DecodedClip::from_frames(key, Vec::new());
+    }
+
+    let b_vec: Vec<u32> = boundaries.into_iter().collect();
+    let mut out = Vec::with_capacity(b_vec.len());
+
+    for i in 0..b_vec.len() - 1 {
+        let t_curr = b_vec[i];
+        let t_next = b_vec[i + 1];
+        let duration_ms = t_next - t_curr;
+        if duration_ms == 0 {
+            continue;
+        }
+
         let Some(mut frame_pm) = Pixmap::new(target_size.max(1), target_size.max(1)) else {
             continue;
         };
 
-        if let Some(back) = back_layer.and_then(|c| sample_clip_at(c, elapsed_ms)) {
+        if let Some(back) = back_layer.and_then(|c| sample_clip_at(c, t_curr)) {
             draw_layer(&mut frame_pm, &back.pixmap, 1.0, Transform::identity());
         }
 
-        if kf.visible
+        if let Some(kf) = sample_keyframe_at(keyframes, t_curr)
+            && kf.visible
             && let Some(item) = item_icon
             && item.width() > 0
             && item.height() > 0
@@ -49,19 +92,31 @@ pub fn compose_food_animation(
             draw_layer(&mut frame_pm, item, kf.opacity, transform);
         }
 
-        if let Some(front) = front_layer.and_then(|c| sample_clip_at(c, elapsed_ms)) {
+        if let Some(front) = front_layer.and_then(|c| sample_clip_at(c, t_curr)) {
             draw_layer(&mut frame_pm, &front.pixmap, 1.0, Transform::identity());
         }
 
-        let dur = kf.duration_ms.max(16);
-        elapsed_ms = elapsed_ms.saturating_add(dur);
         out.push(RenderedFrame {
             pixmap: Arc::new(frame_pm),
-            duration_ms: dur,
+            duration_ms,
         });
     }
 
     DecodedClip::from_frames(key, out)
+}
+
+fn sample_keyframe_at(keyframes: &[FoodKeyframe], elapsed_ms: u32) -> Option<&FoodKeyframe> {
+    if keyframes.is_empty() {
+        return None;
+    }
+    let mut acc = 0_u32;
+    for kf in keyframes {
+        acc = acc.saturating_add(kf.duration_ms);
+        if elapsed_ms < acc {
+            return Some(kf);
+        }
+    }
+    keyframes.last()
 }
 
 fn sample_clip_at(clip: &DecodedClip, elapsed_ms: u32) -> Option<&RenderedFrame> {

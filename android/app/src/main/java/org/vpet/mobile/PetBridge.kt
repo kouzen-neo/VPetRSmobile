@@ -12,7 +12,10 @@ object PetBridge {
         saveDir: String,
         targetPx: Int,
         aiBase: String,
-        aiModel: String
+        aiKey: String,
+        aiModel: String,
+        aiPrompt: String,
+        aiTimeout: Int
     ): Long
 
     external fun nativeDestroy(enginePtr: Long)
@@ -29,6 +32,8 @@ object PetBridge {
     ): String
 
     external fun nativeGetStateJson(enginePtr: Long): String
+
+    external fun nativeGetFoodListJson(enginePtr: Long): String
 
     external fun nativeFeed(enginePtr: Long, foodName: String): String
 
@@ -53,4 +58,15 @@ object PetBridge {
     external fun nativeSetScreenBounds(enginePtr: Long, width: Int, height: Int)
 
     external fun nativeSetAutoWalk(enginePtr: Long, enabled: Boolean)
+
+    external fun nativeSetTargetPx(enginePtr: Long, targetPx: Int)
+
+    external fun nativeUpdateAiConfig(
+        enginePtr: Long,
+        aiBase: String,
+        aiKey: String,
+        aiModel: String,
+        aiPrompt: String,
+        aiTimeout: Int
+    )
 }

@@ -3,7 +3,6 @@ package org.vpet.mobile
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
@@ -15,6 +14,7 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -31,7 +31,7 @@ import kotlin.concurrent.thread
 class MainActivity : AppCompatActivity() {
 
     companion object {
-        const val CURRENT_ASSETS_VERSION = 3
+        const val CURRENT_ASSETS_VERSION = 4
     }
 
     private lateinit var prefs: SharedPreferences
@@ -45,8 +45,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var progressExtract: ProgressBar
     private lateinit var sbScale: SeekBar
     private lateinit var tvScaleVal: TextView
+    private lateinit var cbAutoWalk: CheckBox
     private lateinit var etAiBase: EditText
+    private lateinit var etAiKey: EditText
     private lateinit var etAiModel: EditText
+    private lateinit var etAiPrompt: EditText
+    private lateinit var etAiTimeout: EditText
     private lateinit var btnSaveAi: Button
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -84,10 +88,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun checkAndExtractAssets(force: Boolean) {
         val coreDir = File(filesDir, "content/0000_core")
-        val workDir = File(coreDir, "pet/vup/WORK")
+        val sideHideDir = File(coreDir, "pet/vup/SideHide_Left_Main")
         val savedVer = prefs.getInt("assets_version", 0)
 
-        if (!force && savedVer >= CURRENT_ASSETS_VERSION && workDir.exists()) {
+        if (!force && savedVer >= CURRENT_ASSETS_VERSION && sideHideDir.exists()) {
             tvStatus.text = "All pet assets ready! Tap Start below."
             tvStatus.setTextColor(0xFF16A34A.toInt())
             progressExtract.visibility = View.GONE
@@ -107,7 +111,6 @@ class MainActivity : AppCompatActivity() {
                     ZipInputStream(input).use { zip ->
                         coreDir.mkdirs()
                         var entry = zip.nextEntry
-                        var count = 0
                         while (entry != null) {
                             val outFile = File(coreDir, entry.name)
                             if (entry.isDirectory) {
@@ -118,7 +121,6 @@ class MainActivity : AppCompatActivity() {
                                     zip.copyTo(fos)
                                 }
                             }
-                            count++
                             zip.closeEntry()
                             entry = zip.nextEntry
                         }
@@ -317,7 +319,7 @@ class MainActivity : AppCompatActivity() {
 
         val currentScale = prefs.getInt("pet_scale_px", 280)
         tvScaleVal = TextView(this).apply {
-            text = "$currentScale px (Slide to adjust)"
+            text = "$currentScale px (Slide to resize live on screen)"
             textSize = 13f
             setTextColor(0xFF64748B.toInt())
             setPadding(0, 0, 0, 8)
@@ -330,8 +332,15 @@ class MainActivity : AppCompatActivity() {
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     val scalePx = 160 + progress
-                    tvScaleVal.text = "$scalePx px"
+                    tvScaleVal.text = "$scalePx px (Slide to resize live on screen)"
                     prefs.edit().putInt("pet_scale_px", scalePx).apply()
+                    if (fromUser) {
+                        val intent = Intent(this@MainActivity, PetOverlayService::class.java).apply {
+                            action = PetOverlayService.ACTION_SET_SCALE
+                            putExtra("scale_px", scalePx)
+                        }
+                        startService(intent)
+                    }
                 }
                 override fun onStartTrackingTouch(seekBar: SeekBar?) {}
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {}
@@ -343,13 +352,18 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(sbScale)
 
-        val cbAutoWalk = android.widget.CheckBox(this).apply {
+        cbAutoWalk = CheckBox(this).apply {
             text = "Enable Auto-Walk & Idle Animations (Yawning, bubbles, cat meow, walking)"
             textSize = 13f
             setTextColor(0xFF0F172A.toInt())
             isChecked = prefs.getBoolean("pet_auto_walk", true)
             setOnCheckedChangeListener { _, isChecked ->
                 prefs.edit().putBoolean("pet_auto_walk", isChecked).apply()
+                val intent = Intent(this@MainActivity, PetOverlayService::class.java).apply {
+                    action = PetOverlayService.ACTION_SET_SCALE
+                    putExtra("scale_px", prefs.getInt("pet_scale_px", 280))
+                }
+                startService(intent)
             }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -370,16 +384,65 @@ class MainActivity : AppCompatActivity() {
         }
 
         val tvAiHeader = TextView(this).apply {
-            text = "AI Chat Settings (OpenAI / Ollama / 9router)"
+            text = "AI Chat Settings (OpenAI / DeepSeek / 9router / Ollama)"
             textSize = 15f
             setTypeface(null, Typeface.BOLD)
             setTextColor(0xFF0F172A.toInt())
-            setPadding(0, 0, 0, 16)
+            setPadding(0, 0, 0, 8)
         }
         aiCard.addView(tvAiHeader)
 
+        // Provider Preset Chips Row
+        val tvPresetsLbl = TextView(this).apply {
+            text = "Quick Presets:"
+            textSize = 12f
+            setTextColor(0xFF64748B.toInt())
+            setPadding(0, 0, 0, 6)
+        }
+        aiCard.addView(tvPresetsLbl)
+
+        val presetsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 0, 0, 16)
+        }
+
+        fun createPresetBtn(label: String, base: String, model: String) {
+            val btn = TextView(this).apply {
+                text = label
+                textSize = 11f
+                setTextColor(0xFF0288D1.toInt())
+                background = GradientDrawable().apply {
+                    setColor(0xFFF0F9FF.toInt())
+                    cornerRadius = 14f
+                    setStroke(1, 0xFFBAE6FD.toInt())
+                }
+                setPadding(16, 8, 16, 8)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { setMargins(0, 0, 8, 0) }
+                setOnClickListener {
+                    etAiBase.setText(base)
+                    etAiModel.setText(model)
+                }
+            }
+            presetsRow.addView(btn)
+        }
+
+        createPresetBtn("9router Local", "http://192.168.18.7:20128/v1", "9routerall")
+        createPresetBtn("OpenAI", "https://api.openai.com/v1", "gpt-4o-mini")
+        createPresetBtn("DeepSeek", "https://api.deepseek.com/v1", "deepseek-chat")
+        createPresetBtn("Groq", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile")
+
+        val presetScroll = android.widget.HorizontalScrollView(this).apply {
+            addView(presetsRow)
+            setPadding(0, 0, 0, 8)
+        }
+        aiCard.addView(presetScroll)
+
+        // API Base URL
         val tvAiBaseLbl = TextView(this).apply {
-            text = "API Base URL:"
+            text = "API Base URL (HTTP / HTTPS):"
             textSize = 12f
             setTextColor(0xFF64748B.toInt())
             setPadding(0, 0, 0, 4)
@@ -387,7 +450,7 @@ class MainActivity : AppCompatActivity() {
         aiCard.addView(tvAiBaseLbl)
 
         etAiBase = EditText(this).apply {
-            setText(prefs.getString("ai_base", "http://10.0.2.2:20128/v1"))
+            setText(prefs.getString("ai_base", "http://192.168.18.7:20128/v1"))
             textSize = 13f
             setTextColor(0xFF0F172A.toInt())
             setHintTextColor(0xFF94A3B8.toInt())
@@ -400,10 +463,39 @@ class MainActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { setMargins(0, 0, 0, 16) }
+            ).apply { setMargins(0, 0, 0, 14) }
         }
         aiCard.addView(etAiBase)
 
+        // API Key
+        val tvAiKeyLbl = TextView(this).apply {
+            text = "API Key (Bearer Token, leave blank for local without key):"
+            textSize = 12f
+            setTextColor(0xFF64748B.toInt())
+            setPadding(0, 0, 0, 4)
+        }
+        aiCard.addView(tvAiKeyLbl)
+
+        etAiKey = EditText(this).apply {
+            setText(prefs.getString("ai_key", ""))
+            hint = "sk-... (Required for OpenAI / DeepSeek / Groq)"
+            textSize = 13f
+            setTextColor(0xFF0F172A.toInt())
+            setHintTextColor(0xFF94A3B8.toInt())
+            background = GradientDrawable().apply {
+                setColor(0xFFF8FAFC.toInt())
+                cornerRadius = 16f
+                setStroke(2, 0xFFE2E8F0.toInt())
+            }
+            setPadding(24, 20, 24, 20)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, 0, 0, 14) }
+        }
+        aiCard.addView(etAiKey)
+
+        // Model Name
         val tvAiModelLbl = TextView(this).apply {
             text = "Model Name:"
             textSize = 12f
@@ -426,12 +518,72 @@ class MainActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { setMargins(0, 0, 0, 20) }
+            ).apply { setMargins(0, 0, 0, 14) }
         }
         aiCard.addView(etAiModel)
 
+        // System Prompt
+        val tvAiPromptLbl = TextView(this).apply {
+            text = "System Prompt (Pet personality instructions):"
+            textSize = 12f
+            setTextColor(0xFF64748B.toInt())
+            setPadding(0, 0, 0, 4)
+        }
+        aiCard.addView(tvAiPromptLbl)
+
+        etAiPrompt = EditText(this).apply {
+            setText(
+                prefs.getString(
+                    "ai_prompt",
+                    "You are Loris, a lively and affectionate desktop pet. Keep replies concise (1-2 short sentences)."
+                )
+            )
+            textSize = 13f
+            setTextColor(0xFF0F172A.toInt())
+            setHintTextColor(0xFF94A3B8.toInt())
+            background = GradientDrawable().apply {
+                setColor(0xFFF8FAFC.toInt())
+                cornerRadius = 16f
+                setStroke(2, 0xFFE2E8F0.toInt())
+            }
+            setPadding(24, 20, 24, 20)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, 0, 0, 14) }
+        }
+        aiCard.addView(etAiPrompt)
+
+        // Timeout
+        val tvAiTimeoutLbl = TextView(this).apply {
+            text = "Timeout (seconds):"
+            textSize = 12f
+            setTextColor(0xFF64748B.toInt())
+            setPadding(0, 0, 0, 4)
+        }
+        aiCard.addView(tvAiTimeoutLbl)
+
+        etAiTimeout = EditText(this).apply {
+            setText(prefs.getInt("ai_timeout", 25).toString())
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            textSize = 13f
+            setTextColor(0xFF0F172A.toInt())
+            setHintTextColor(0xFF94A3B8.toInt())
+            background = GradientDrawable().apply {
+                setColor(0xFFF8FAFC.toInt())
+                cornerRadius = 16f
+                setStroke(2, 0xFFE2E8F0.toInt())
+            }
+            setPadding(24, 20, 24, 20)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, 0, 0, 20) }
+        }
+        aiCard.addView(etAiTimeout)
+
         btnSaveAi = Button(this).apply {
-            text = "Save AI Configuration"
+            text = "Save and Apply AI Configuration"
             textSize = 13f
             setTypeface(null, Typeface.BOLD)
             setTextColor(0xFFFFFFFF.toInt())
@@ -440,19 +592,20 @@ class MainActivity : AppCompatActivity() {
                 cornerRadius = 20f
             }
             setOnClickListener {
+                val timeoutVal = etAiTimeout.text.toString().trim().toIntOrNull() ?: 25
                 prefs.edit()
                     .putString("ai_base", etAiBase.text.toString().trim())
+                    .putString("ai_key", etAiKey.text.toString().trim())
                     .putString("ai_model", etAiModel.text.toString().trim())
+                    .putString("ai_prompt", etAiPrompt.text.toString().trim())
+                    .putInt("ai_timeout", timeoutVal)
                     .apply()
-                // Restart overlay service if already active to apply new AI endpoint immediately
-                val intent = Intent(this@MainActivity, PetOverlayService::class.java)
-                stopService(intent)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(intent)
-                } else {
-                    startService(intent)
+
+                val intent = Intent(this@MainActivity, PetOverlayService::class.java).apply {
+                    action = PetOverlayService.ACTION_RELOAD_AI
                 }
-                Toast.makeText(this@MainActivity, "AI Config Saved and Pet Reloaded!", Toast.LENGTH_SHORT).show()
+                startService(intent)
+                Toast.makeText(this@MainActivity, "AI Config Saved and Applied Live!", Toast.LENGTH_SHORT).show()
             }
         }
         aiCard.addView(btnSaveAi)

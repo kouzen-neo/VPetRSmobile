@@ -23,7 +23,8 @@ os.makedirs(os.path.dirname(out_zip), exist_ok=True)
 included_vup = {
     'Default', 'IDEL', 'Touch_Head', 'Touch_Body', 'Pinch', 'Raise',
     'Sleep', 'Say', 'Eat', 'Drink', 'State', 'WORK', 'MOVE',
-    'StartUP', 'Switch', 'Think', 'LevelUP'
+    'StartUP', 'Switch', 'Think', 'LevelUP',
+    'SideHide_Left_Main', 'SideHide_Left_Rise', 'SideHide_Right_Main', 'SideHide_Right_Rise'
 }
 with zipfile.ZipFile(out_zip, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
     for root, dirs, files in os.walk(core_dir):

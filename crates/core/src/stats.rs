@@ -145,7 +145,9 @@ impl PetState {
         let cap = self.strength_max().max(self.strength_food);
         let next = (self.strength_food + delta).min(cap);
         if next <= 0.0 {
-            self.add_health(next);
+            if self.strength_food > 0.0 {
+                self.add_health(next);
+            }
             self.strength_food = 0.0;
         } else {
             self.strength_food = next;
@@ -156,7 +158,9 @@ impl PetState {
         let cap = self.strength_max().max(self.strength_drink);
         let next = (self.strength_drink + delta).min(cap);
         if next <= 0.0 {
-            self.add_health(next);
+            if self.strength_drink > 0.0 {
+                self.add_health(next);
+            }
             self.strength_drink = 0.0;
         } else {
             self.strength_drink = next;
@@ -167,8 +171,10 @@ impl PetState {
         let cap = self.feeling_max().max(self.feeling);
         let next = (self.feeling + delta).min(cap);
         if next <= 0.0 {
-            self.add_health(next * 0.5);
-            self.add_likability(next * 0.5);
+            if self.feeling > 0.0 {
+                self.add_health(next * 0.5);
+                self.add_likability(next * 0.5);
+            }
             self.feeling = 0.0;
         } else {
             self.feeling = next;

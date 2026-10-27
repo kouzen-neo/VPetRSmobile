@@ -11,8 +11,8 @@ import kotlin.math.abs
 
 class PetView(
     context: Context,
-    val targetPx: Int,
-    val bubblePadPx: Int,
+    var targetPx: Int,
+    var bubblePadPx: Int,
     private val onMoveDelta: (dx: Int, dy: Int) -> Unit,
     private val onDragStart: () -> Unit,
     private val onDragEnd: () -> Unit,
@@ -20,14 +20,31 @@ class PetView(
     private val onLongPressAction: () -> Unit
 ) : View(context) {
 
-    val bitmapWidth = targetPx
-    val bitmapHeight = targetPx + bubblePadPx
+    var bitmapWidth = targetPx
+        private set
+    var bitmapHeight = targetPx + bubblePadPx
+        private set
 
-    val renderBitmap: Bitmap = Bitmap.createBitmap(
+    var renderBitmap: Bitmap = Bitmap.createBitmap(
         bitmapWidth,
         bitmapHeight,
         Bitmap.Config.ARGB_8888
     )
+        private set
+
+    fun updateTargetSize(newTargetPx: Int) {
+        if (newTargetPx == targetPx) return
+        targetPx = newTargetPx
+        bubblePadPx = newTargetPx / 3
+        bitmapWidth = targetPx
+        bitmapHeight = targetPx + bubblePadPx
+        try {
+            renderBitmap.recycle()
+        } catch (_: Exception) {}
+        renderBitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
+        requestLayout()
+        invalidate()
+    }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 

@@ -83,6 +83,10 @@ pub enum ActionState {
     Raised {
         dropping: bool,
     },
+    SideHide {
+        left: bool,
+        rising: bool,
+    },
 }
 
 impl ActionState {
@@ -96,6 +100,7 @@ impl ActionState {
             Self::Saying => 40,
             Self::Working { .. } => 50,
             Self::Touch { .. } => 60,
+            Self::SideHide { .. } => 65,
             Self::Raised { .. } => 70,
         }
     }
@@ -236,7 +241,19 @@ impl InteractionController {
         world: &mut World,
     ) {
         world.output_positions.insert(output_name.to_owned(), pos);
-        self.request_state(ActionState::Raised { dropping: true }, true, index, world);
+        if pos.0 <= 20 {
+            self.request_state(
+                ActionState::SideHide {
+                    left: true,
+                    rising: false,
+                },
+                true,
+                index,
+                world,
+            );
+        } else {
+            self.request_state(ActionState::Raised { dropping: true }, true, index, world);
+        }
     }
 
     pub fn on_click_zone(
@@ -246,6 +263,21 @@ impl InteractionController {
         index: &AnimationIndex,
         world: &mut World,
     ) {
+        if let ActionState::SideHide {
+            left,
+            rising: false,
+        } = self.state
+        {
+            self.request_state(
+                ActionState::SideHide { left, rising: true },
+                true,
+                index,
+                world,
+            );
+            self.show_bubble("Peekaboo!", 3_000);
+            return;
+        }
+
         let kind = match zone {
             HitZone::Head | HitZone::Pinch => {
                 let _ = world.pet_head();
@@ -361,6 +393,20 @@ impl InteractionController {
                 world.output_positions.insert(output_name.to_owned(), *pos);
 
                 if (next_x == 0 && dir_x < 0) || (next_x == max_x && dir_x > 0) {
+                    let is_left = next_x == 0;
+                    let roll = world.rng.next_u64();
+                    if roll.is_multiple_of(3) {
+                        self.request_state(
+                            ActionState::SideHide {
+                                left: is_left,
+                                rising: false,
+                            },
+                            true,
+                            index,
+                            world,
+                        );
+                        return;
+                    }
                     let flipped = -dir_x;
                     self.request_state(
                         ActionState::Moving {
@@ -499,6 +545,26 @@ impl InteractionController {
             ActionState::Raised { dropping: true } => {
                 resolve_c_end_or_single(index, GraphType::RaisedStatic, None, mode, seed)
             }
+            ActionState::SideHide {
+                left,
+                rising: false,
+            } => {
+                let gt = if *left {
+                    GraphType::SideHideLeftMain
+                } else {
+                    GraphType::SideHideRightMain
+                };
+                resolve_chain_start(index, gt, None, mode, seed, None, true)
+            }
+            ActionState::SideHide { left, rising: true } => {
+                let gt = if *left {
+                    GraphType::SideHideLeftRise
+                } else {
+                    GraphType::SideHideRightRise
+                };
+                resolve_chain_start(index, gt, None, mode, seed, Some(1), false)
+                    .or_else(|| resolve_c_end_or_single(index, gt, None, mode, seed))
+            }
         };
 
         self.active_clip = resolved.map(|(entry, phase, name_opt)| ActiveClip {
@@ -522,6 +588,7 @@ impl InteractionController {
                     | ActionState::Touch { .. }
                     | ActionState::Saying
                     | ActionState::Fidget { .. }
+                    | ActionState::SideHide { rising: true, .. }
             )
         {
             self.finish_transient_state(index, world);
@@ -536,6 +603,8 @@ impl InteractionController {
         let loop_budget = match &self.state {
             ActionState::Touch { .. } | ActionState::Saying => Some(1),
             ActionState::Fidget { .. } => Some(3),
+            ActionState::SideHide { rising: true, .. } => Some(1),
+            ActionState::SideHide { rising: false, .. } => None,
             ActionState::Moving {
                 loops_remaining, ..
             } => Some(*loops_remaining),
@@ -836,5 +905,50 @@ mod tests {
         }
         assert!(saw_fidget, "idle never played an IDEL fidget");
         assert!(saw_walk, "idle never auto-walked");
+    }
+
+    #[test]
+    fn test_side_hide_indexed() {
+        let vup_dir =
+            Path::new("/home/kouzen/Documents/VPet/VPet-Simulator.Windows/mod/0000_core/pet/vup");
+        if !vup_dir.exists() {
+            return;
+        }
+        let idx = AnimationIndex::scan_pet_dir("vup", vup_dir);
+        let q_left = idx.query(
+            GraphType::SideHideLeftMain,
+            None,
+            AnimatType::BLoop,
+            ModeType::Nomal,
+        );
+        let q_left_rise = idx.query(
+            GraphType::SideHideLeftRise,
+            None,
+            AnimatType::BLoop,
+            ModeType::Nomal,
+        );
+        let q_right = idx.query(
+            GraphType::SideHideRightMain,
+            None,
+            AnimatType::BLoop,
+            ModeType::Nomal,
+        );
+        let q_right_rise = idx.query(
+            GraphType::SideHideRightRise,
+            None,
+            AnimatType::BLoop,
+            ModeType::Nomal,
+        );
+        eprintln!(
+            "SideHide entries: left_main={}, left_rise={}, right_main={}, right_rise={}",
+            q_left.len(),
+            q_left_rise.len(),
+            q_right.len(),
+            q_right_rise.len()
+        );
+        assert!(!q_left.is_empty(), "SideHideLeftMain not indexed!");
+        assert!(!q_left_rise.is_empty(), "SideHideLeftRise not indexed!");
+        assert!(!q_right.is_empty(), "SideHideRightMain not indexed!");
+        assert!(!q_right_rise.is_empty(), "SideHideRightRise not indexed!");
     }
 }

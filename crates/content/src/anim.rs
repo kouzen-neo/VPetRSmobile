@@ -196,6 +196,10 @@ pub enum AnimationSource {
         front_lay: Option<String>,
         back_lay: Option<String>,
         keyframes: Vec<FoodKeyframe>,
+        #[serde(default)]
+        mode: ModeType,
+        #[serde(default)]
+        item_icon_path: Option<PathBuf>,
     },
 }
 
@@ -709,6 +713,8 @@ fn load_from_info_line(
                     front_lay: line.get("front_lay").map(str::to_owned),
                     back_lay: line.get("back_lay").map(str::to_owned),
                     keyframes,
+                    mode: meta.mode,
+                    item_icon_path: None,
                 },
             });
         }
@@ -1137,6 +1143,26 @@ mod tests {
                 ModeType::Nomal
             )
             .is_empty()
+        );
+        assert!(
+            !idx.query(
+                GraphType::Common,
+                Some("drink"),
+                AnimatType::Single,
+                ModeType::Nomal
+            )
+            .is_empty(),
+            "drink animation must be queryable in Nomal mode"
+        );
+        assert!(
+            !idx.query(
+                GraphType::Common,
+                Some("eat"),
+                AnimatType::Single,
+                ModeType::Nomal
+            )
+            .is_empty(),
+            "eat animation must be queryable in Nomal mode"
         );
     }
 }

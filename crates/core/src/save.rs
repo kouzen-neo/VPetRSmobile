@@ -64,6 +64,7 @@ impl SaveFile {
     pub fn into_world(self) -> World {
         let mut w = World::new(self.profile, self.pet.name.clone(), self.rng_state);
         w.pet = self.pet;
+        w.pet.money = w.pet.money.max(0.0);
         w.pet.mode = w.pet.cal_mode();
         w.inventory = Inventory::from_items(&self.inventory);
         w.buffs = self.buffs;

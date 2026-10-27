@@ -10,7 +10,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
-import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -28,7 +27,9 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
@@ -42,6 +43,8 @@ class PetOverlayService : Service() {
         const val ACTION_SLEEP = "org.vpet.mobile.ACTION_SLEEP"
         const val ACTION_CHAT = "org.vpet.mobile.ACTION_CHAT"
         const val ACTION_STOP = "org.vpet.mobile.ACTION_STOP"
+        const val ACTION_SET_SCALE = "org.vpet.mobile.ACTION_SET_SCALE"
+        const val ACTION_RELOAD_AI = "org.vpet.mobile.ACTION_RELOAD_AI"
     }
 
     private var windowManager: WindowManager? = null
@@ -49,6 +52,7 @@ class PetOverlayService : Service() {
     private var layoutParams: WindowManager.LayoutParams? = null
 
     private var activeMenuView: View? = null
+    private var activeStoreView: View? = null
 
     private var enginePtr: Long = 0
     private val handler = Handler(Looper.getMainLooper())
@@ -136,14 +140,20 @@ class PetOverlayService : Service() {
         saveDir.mkdirs()
 
         val aiBase = prefs.getString("ai_base", "http://10.0.2.2:20128/v1") ?: ""
+        val aiKey = prefs.getString("ai_key", "") ?: ""
         val aiModel = prefs.getString("ai_model", "9routerall") ?: ""
+        val aiPrompt = prefs.getString("ai_prompt", "") ?: ""
+        val aiTimeout = prefs.getInt("ai_timeout", 25)
 
         enginePtr = PetBridge.nativeInit(
             contentDir.absolutePath,
             saveDir.absolutePath,
             targetPx,
             aiBase,
-            aiModel
+            aiKey,
+            aiModel,
+            aiPrompt,
+            aiTimeout
         )
 
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -191,6 +201,7 @@ class PetOverlayService : Service() {
             onDragStart = {
                 isDraggingPet = true
                 dismissMenu()
+                dismissStore()
             },
             onDragEnd = {
                 isDraggingPet = false
@@ -206,10 +217,7 @@ class PetOverlayService : Service() {
             },
             onActionTouch = { type, x, y ->
                 if (enginePtr != 0L) {
-                    val result = PetBridge.nativeTouch(enginePtr, type, x, y)
-                    if (result == "bubble_tap") {
-                        showFloatingMenu(defaultTab = "chat")
-                    }
+                    PetBridge.nativeTouch(enginePtr, type, x, y)
                 }
             },
             onLongPressAction = {
@@ -248,8 +256,46 @@ class PetOverlayService : Service() {
             ACTION_STOP -> {
                 stopSelf()
             }
+            ACTION_SET_SCALE -> {
+                val newScale = intent.getIntExtra("scale_px", prefs.getInt("pet_scale_px", 280))
+                applyScale(newScale)
+            }
+            ACTION_RELOAD_AI -> {
+                applyAiConfig()
+            }
         }
         return START_STICKY
+    }
+
+    private fun applyScale(newScale: Int) {
+        val targetPx = newScale.coerceIn(160, 500)
+        val bubblePadPx = targetPx / 3
+        prefs.edit().putInt("pet_scale_px", targetPx).apply()
+        if (enginePtr != 0L) {
+            PetBridge.nativeSetTargetPx(enginePtr, targetPx)
+        }
+        petView?.updateTargetSize(targetPx)
+        layoutParams?.let { params ->
+            params.width = targetPx
+            params.height = targetPx + bubblePadPx
+            val dm = resources.displayMetrics
+            val maxX = (dm.widthPixels - targetPx).coerceAtLeast(0)
+            val maxY = (dm.heightPixels - (targetPx + bubblePadPx)).coerceAtLeast(0)
+            params.x = params.x.coerceIn(0, maxX)
+            params.y = params.y.coerceIn(0, maxY)
+            windowManager?.updateViewLayout(petView, params)
+        }
+    }
+
+    private fun applyAiConfig() {
+        val aiBase = prefs.getString("ai_base", "http://10.0.2.2:20128/v1") ?: ""
+        val aiKey = prefs.getString("ai_key", "") ?: ""
+        val aiModel = prefs.getString("ai_model", "9routerall") ?: ""
+        val aiPrompt = prefs.getString("ai_prompt", "") ?: ""
+        val aiTimeout = prefs.getInt("ai_timeout", 25)
+        if (enginePtr != 0L) {
+            PetBridge.nativeUpdateAiConfig(enginePtr, aiBase, aiKey, aiModel, aiPrompt, aiTimeout)
+        }
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -269,8 +315,18 @@ class PetOverlayService : Service() {
         }
     }
 
+    private fun dismissStore() {
+        activeStoreView?.let { store ->
+            try {
+                windowManager?.removeView(store)
+            } catch (_: Exception) {}
+            activeStoreView = null
+        }
+    }
+
     private fun showFloatingMenu(defaultTab: String = "chat") {
         dismissMenu()
+        dismissStore()
 
         val wm = windowManager ?: return
         val petParams = layoutParams ?: return
@@ -286,6 +342,7 @@ class PetOverlayService : Service() {
         val petLevel = petState.optInt("level", 1)
         val petMode = petState.optString("mode", "Normal")
         val isSleeping = petState.optBoolean("sleeping", false)
+        val money = petState.optDouble("money", 0.0)
 
         val cardRoot = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -309,7 +366,7 @@ class PetOverlayService : Service() {
         val expNeed = petState.optDouble("exp_need", 100.0).toInt()
 
         val tvTitle = TextView(this).apply {
-            text = "$petName - Lv.$petLevel ($expCur / $expNeed EXP)"
+            text = "$petName - Lv.$petLevel ($expCur / $expNeed EXP) - $${String.format("%.1f", money)}"
             textSize = 14f
             setTypeface(null, Typeface.BOLD)
             setTextColor(0xFF0F172A.toInt())
@@ -422,7 +479,7 @@ class PetOverlayService : Service() {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 16, 0, 0)
             }
-            for (chipText in arrayOf("Hello!", "How are you?", "Tell a joke")) {
+            for (chipText in arrayOf("Hello!", "How are you?", "Tell a joke", "unlockall")) {
                 val chip = TextView(this).apply {
                     text = chipText
                     textSize = 11f
@@ -451,7 +508,7 @@ class PetOverlayService : Service() {
         fun showFeedTab() {
             subContentPanel.removeAllViews()
             val tvPrompt = TextView(this).apply {
-                text = "Feed items & drinks:"
+                text = "Quick nourishment:"
                 textSize = 13f
                 setTextColor(0xFF64748B.toInt())
                 setPadding(0, 0, 0, 12)
@@ -492,12 +549,92 @@ class PetOverlayService : Service() {
                 grid.addView(btn)
             }
             subContentPanel.addView(grid)
+
+            // Button to open full Food Store dialog!
+            val btnOpenStore = Button(this).apply {
+                text = "Browse Full Food Store (151 items)"
+                textSize = 13f
+                isAllCaps = false
+                setTextColor(0xFFFFFFFF.toInt())
+                background = GradientDrawable().apply {
+                    setColor(0xFF0288D1.toInt())
+                    cornerRadius = 20f
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { setMargins(0, 16, 0, 0) }
+                setOnClickListener {
+                    dismissMenu()
+                    showFoodStoreDialog()
+                }
+            }
+            subContentPanel.addView(btnOpenStore)
         }
 
         fun showWorkTab() {
             subContentPanel.removeAllViews()
+
+            val activeWork = petState.optJSONObject("active_work")
+            if (activeWork != null) {
+                val activeName = activeWork.optString("name", "Work")
+                val remSecs = activeWork.optLong("remaining_secs", 0)
+                val mins = remSecs / 60
+                val secs = remSecs % 60
+
+                val activeCard = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(24, 20, 24, 20)
+                    background = GradientDrawable().apply {
+                        setColor(0xFFF0FDF4.toInt())
+                        cornerRadius = 20f
+                        setStroke(2, 0xFF86EFAC.toInt())
+                    }
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { setMargins(0, 0, 0, 16) }
+                }
+
+                val tvWorkTitle = TextView(this).apply {
+                    text = "Active Job: $activeName"
+                    textSize = 14f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(0xFF166534.toInt())
+                }
+                activeCard.addView(tvWorkTitle)
+
+                val tvCountdown = TextView(this).apply {
+                    text = "Remaining: ${mins}m ${secs}s"
+                    textSize = 12f
+                    setTextColor(0xFF15803D.toInt())
+                    setPadding(0, 4, 0, 12)
+                }
+                activeCard.addView(tvCountdown)
+
+                val btnCancel = Button(this).apply {
+                    text = "Take a Break (Cancel)"
+                    textSize = 12f
+                    isAllCaps = false
+                    setTextColor(0xFFDC2626.toInt())
+                    background = GradientDrawable().apply {
+                        setColor(0xFFFEF2F2.toInt())
+                        cornerRadius = 16f
+                        setStroke(1, 0xFFFCA5A5.toInt())
+                    }
+                    setOnClickListener {
+                        if (enginePtr != 0L) {
+                            PetBridge.nativeCancelWork(enginePtr)
+                            dismissMenu()
+                        }
+                    }
+                }
+                activeCard.addView(btnCancel)
+                subContentPanel.addView(activeCard)
+            }
+
             val tvPrompt = TextView(this).apply {
-                text = "Work / Study / Play (PC System):"
+                text = "Available Work / Study / Play tasks:"
                 textSize = 13f
                 setTextColor(0xFF64748B.toInt())
                 setPadding(0, 0, 0, 12)
@@ -618,6 +755,247 @@ class PetOverlayService : Service() {
         activeMenuView = cardRoot
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Full Food Store Catalog Dialog (151 items with stats and pricing)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private fun showFoodStoreDialog() {
+        dismissStore()
+        dismissMenu()
+
+        val wm = windowManager ?: return
+        val rawJson = if (enginePtr != 0L) PetBridge.nativeGetFoodListJson(enginePtr) else "[]"
+        val itemsArray = try {
+            JSONArray(rawJson)
+        } catch (_: Exception) {
+            JSONArray()
+        }
+
+        val rootCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 28, 32, 28)
+            background = GradientDrawable().apply {
+                setColor(0xFFFFFFFF.toInt())
+                cornerRadius = 32f
+                setStroke(3, 0xFF0288D1.toInt())
+            }
+            elevation = 28f
+        }
+
+        // Header
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, 16)
+        }
+
+        val stateJson = if (enginePtr != 0L) PetBridge.nativeGetStateJson(enginePtr) else "{}"
+        val userMoney = try {
+            JSONObject(stateJson).optDouble("money", 0.0)
+        } catch (_: Exception) {
+            0.0
+        }
+
+        val tvTitle = TextView(this).apply {
+            text = "Food Store - Balance: $${String.format("%.1f", userMoney)}"
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(0xFF0F172A.toInt())
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        header.addView(tvTitle)
+
+        val btnClose = TextView(this).apply {
+            text = "X"
+            textSize = 18f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(0xFF64748B.toInt())
+            setPadding(16, 0, 8, 0)
+            setOnClickListener { dismissStore() }
+        }
+        header.addView(btnClose)
+        rootCard.addView(header)
+
+        // Search Filter Input
+        val etSearch = EditText(this).apply {
+            hint = "Search food name..."
+            textSize = 13f
+            setTextColor(0xFF0F172A.toInt())
+            setHintTextColor(0xFF94A3B8.toInt())
+            background = GradientDrawable().apply {
+                setColor(0xFFF8FAFC.toInt())
+                cornerRadius = 16f
+                setStroke(2, 0xFFE2E8F0.toInt())
+            }
+            setPadding(20, 16, 20, 16)
+        }
+        rootCard.addView(etSearch)
+
+        // Scrollable List Container
+        val itemsLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 16, 0, 0)
+        }
+
+        fun populateList(query: String) {
+            itemsLayout.removeAllViews()
+            var displayed = 0
+
+            for (i in 0 until itemsArray.length()) {
+                val item = itemsArray.optJSONObject(i) ?: continue
+                val name = item.optString("name", "")
+                if (query.isNotEmpty() && !name.contains(query, ignoreCase = true)) {
+                    continue
+                }
+
+                val category = item.optString("category", "Meal")
+                val price = item.optDouble("price", 0.0)
+                val foodGain = item.optDouble("food", 0.0).toInt()
+                val drinkGain = item.optDouble("drink", 0.0).toInt()
+                val feelGain = item.optDouble("feeling", 0.0).toInt()
+                val healthGain = item.optDouble("health", 0.0).toInt()
+                val desc = item.optString("desc", "")
+
+                val rowCard = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(20, 16, 20, 16)
+                    background = GradientDrawable().apply {
+                        setColor(0xFFF8FAFC.toInt())
+                        cornerRadius = 16f
+                        setStroke(1, 0xFFE2E8F0.toInt())
+                    }
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { setMargins(0, 0, 0, 12) }
+                }
+
+                val rowHeader = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+
+                val tvItemName = TextView(this).apply {
+                    text = "$name ($category)"
+                    textSize = 13f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(0xFF0F172A.toInt())
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                rowHeader.addView(tvItemName)
+
+                val btnBuy = Button(this).apply {
+                    text = "Buy $${String.format("%.1f", price)}"
+                    textSize = 11f
+                    isAllCaps = false
+                    setTextColor(0xFFFFFFFF.toInt())
+                    background = GradientDrawable().apply {
+                        setColor(0xFF0288D1.toInt())
+                        cornerRadius = 16f
+                    }
+                    setOnClickListener {
+                        if (enginePtr != 0L) {
+                            val res = PetBridge.nativeFeed(enginePtr, name)
+                            Toast.makeText(this@PetOverlayService, res, Toast.LENGTH_SHORT).show()
+                            dismissStore()
+                        }
+                    }
+                }
+                rowHeader.addView(btnBuy)
+                rowCard.addView(rowHeader)
+
+                val tvStatBoost = TextView(this).apply {
+                    val buffs = mutableListOf<String>()
+                    if (foodGain != 0) buffs.add("Food +$foodGain")
+                    if (drinkGain != 0) buffs.add("Drink +$drinkGain")
+                    if (feelGain != 0) buffs.add("Feel +$feelGain")
+                    if (healthGain != 0) buffs.add("Health +$healthGain")
+                    text = buffs.joinToString(" • ")
+                    textSize = 11f
+                    setTextColor(0xFF0288D1.toInt())
+                    setPadding(0, 4, 0, if (desc.isNotEmpty()) 4 else 0)
+                }
+                rowCard.addView(tvStatBoost)
+
+                if (desc.isNotEmpty()) {
+                    val tvDesc = TextView(this).apply {
+                        text = desc
+                        textSize = 11f
+                        setTextColor(0xFF64748B.toInt())
+                    }
+                    rowCard.addView(tvDesc)
+                }
+
+                itemsLayout.addView(rowCard)
+                displayed++
+                if (displayed >= 40 && query.isEmpty()) {
+                    // Show first 40 when no search to keep scrolling fast
+                    val tvMore = TextView(this).apply {
+                        text = "Use search above to find remaining items..."
+                        textSize = 12f
+                        setTextColor(0xFF94A3B8.toInt())
+                        gravity = Gravity.CENTER
+                        setPadding(0, 12, 0, 12)
+                    }
+                    itemsLayout.addView(tvMore)
+                    break
+                }
+            }
+        }
+
+        populateList("")
+
+        etSearch.addTextChangedListener(object : android.text.TextWatcher {
+            override fun afterTextChanged(s: android.text.Editable?) {
+                populateList(s?.toString()?.trim() ?: "")
+            }
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+        })
+
+        val scroll = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (resources.displayMetrics.heightPixels * 0.55).toInt()
+            )
+        }
+        scroll.addView(itemsLayout)
+        rootCard.addView(scroll)
+
+        val overlayType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+
+        val dm = resources.displayMetrics
+        val storeWidth = (dm.widthPixels * 0.90).toInt().coerceAtMost(1000)
+
+        val storeParams = WindowManager.LayoutParams(
+            storeWidth,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayType,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.CENTER
+        }
+
+        rootCard.setOnTouchListener { _, event ->
+            if (event.action == MotionEvent.ACTION_OUTSIDE) {
+                dismissStore()
+                true
+            } else {
+                false
+            }
+        }
+
+        wm.addView(rootCard, storeParams)
+        activeStoreView = rootCard
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -691,6 +1069,7 @@ class PetOverlayService : Service() {
         handler.removeCallbacks(tickRunnable)
 
         dismissMenu()
+        dismissStore()
 
         try {
             unregisterReceiver(screenReceiver)

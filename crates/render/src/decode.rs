@@ -1,13 +1,18 @@
 //! Decoders for VPet PNG frame sequences, single PNGs, APNG, and GIF animations.
 
-use std::{fs::File, io::BufReader, path::Path, sync::Arc};
+use std::{
+    fs::{self, File},
+    io::BufReader,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use image::{
     AnimationDecoder, ImageDecoder,
     codecs::{gif::GifDecoder, png::PngDecoder},
 };
 use tiny_skia::Pixmap;
-use vpet_content::{AnimationSource, FrameFile};
+use vpet_content::{AnimationSource, FrameFile, ModeType};
 
 use crate::canvas::{RenderError, load_sprite_scaled, rgba_image_to_pixmap, scale_pixmap};
 
@@ -170,7 +175,114 @@ pub fn decode_animation_source(
             ))
         }
         AnimationSource::AnimatedImage { file, .. } => decode_animated_file(key, file, target_size),
-        AnimationSource::Food { .. } => Ok(DecodedClip::from_frames(key, Vec::new())),
+        AnimationSource::Food {
+            dir,
+            keyframes,
+            mode,
+            item_icon_path,
+            ..
+        } => {
+            let back =
+                find_layer_dir(dir, *mode, "back").and_then(|d| decode_png_dir(&d, target_size));
+            let front =
+                find_layer_dir(dir, *mode, "front").and_then(|d| decode_png_dir(&d, target_size));
+            let item_icon = item_icon_path.as_deref().and_then(|p| {
+                load_sprite_scaled(p, (target_size / 2).max(32), (target_size / 2).max(32)).ok()
+            });
+
+            Ok(crate::food::compose_food_animation(
+                key,
+                keyframes,
+                back.as_ref(),
+                front.as_ref(),
+                item_icon.as_ref(),
+                target_size,
+            ))
+        }
+    }
+}
+
+fn decode_png_dir(dir: &Path, target_size: u32) -> Option<DecodedClip> {
+    if !dir.is_dir() {
+        return None;
+    }
+    let mut files: Vec<PathBuf> = fs::read_dir(dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| {
+            p.is_file()
+                && p.extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("png"))
+        })
+        .collect();
+    if files.is_empty() {
+        return None;
+    }
+    files.sort_by(|a, b| vpet_content::natural_path_cmp(a, b));
+    let frame_files: Vec<FrameFile> = files
+        .into_iter()
+        .map(|p| FrameFile {
+            duration_ms: vpet_content::parse_frame_duration_ms(&p),
+            path: p,
+        })
+        .collect();
+    decode_png_sequence("layer", &frame_files, target_size).ok()
+}
+
+fn find_layer_dir(base: &Path, mode: ModeType, keyword: &str) -> Option<PathBuf> {
+    if !base.is_dir() {
+        return None;
+    }
+    for mode_name in [mode.as_str(), mode_name_capitalized(mode)] {
+        let sub = base.join(mode_name);
+        if sub.is_dir()
+            && let Ok(entries) = fs::read_dir(&sub)
+        {
+            for entry in entries.filter_map(Result::ok) {
+                let p = entry.path();
+                if p.is_dir()
+                    && p.file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|name| name.to_ascii_lowercase().contains(keyword))
+                {
+                    return Some(p);
+                }
+            }
+        }
+    }
+    if let Ok(entries) = fs::read_dir(base) {
+        for entry in entries.filter_map(Result::ok) {
+            let p = entry.path();
+            if p.is_dir()
+                && p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|name| name.to_ascii_lowercase().contains(keyword))
+            {
+                return Some(p);
+            }
+        }
+    }
+    if let Ok(entries) = fs::read_dir(base) {
+        for entry in entries.filter_map(Result::ok) {
+            let p = entry.path();
+            if p.is_dir()
+                && let Some(found) = find_layer_dir(&p, mode, keyword)
+            {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+fn mode_name_capitalized(mode: ModeType) -> &'static str {
+    match mode {
+        ModeType::Happy => "Happy",
+        ModeType::Nomal => "Nomal",
+        ModeType::PoorCondition => "PoorCondition",
+        ModeType::Ill => "Ill",
     }
 }
 
@@ -227,6 +339,41 @@ mod tests {
             assert_eq!(clip.frames.len(), 2);
             assert_eq!(clip.byte_size, 2 * 250 * 250 * 4);
             assert!(start.elapsed().as_millis() < 2_000);
+        }
+
+        let vup_dir =
+            Path::new("/home/kouzen/Documents/VPet/VPet-Simulator.Windows/mod/0000_core/pet/vup");
+        if vup_dir.is_dir() {
+            let idx = vpet_content::AnimationIndex::scan_pet_dir("vup", vup_dir);
+            for name in ["drink", "eat", "gift"] {
+                for mode in [
+                    ModeType::Nomal,
+                    ModeType::Happy,
+                    ModeType::PoorCondition,
+                    ModeType::Ill,
+                ] {
+                    let entry = idx
+                        .pick(
+                            vpet_content::GraphType::Common,
+                            Some(name),
+                            vpet_content::AnimatType::Single,
+                            mode,
+                            0,
+                        )
+                        .unwrap_or_else(|| {
+                            panic!("failed to find {name} animation for mode {:?}", mode)
+                        });
+                    let clip =
+                        decode_animation_source(name, &entry.source, 250).unwrap_or_else(|e| {
+                            panic!("failed to decode {name} for mode {:?}: {}", mode, e)
+                        });
+                    assert!(
+                        !clip.frames.is_empty(),
+                        "{name} clip for mode {:?} had 0 frames",
+                        mode
+                    );
+                }
+            }
         }
     }
 }

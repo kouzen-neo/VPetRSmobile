@@ -185,29 +185,37 @@ impl World {
         if let Some(mut work) = self.active_work.take() {
             let step = dt.min(work.remaining_secs.max(0.0));
             let mins = step / 60.0;
-            self.pet.money += work.money_per_min * mins;
-            let _ = self.pet.add_exp(work.exp_per_min * mins * exp_mult);
-            self.pet
-                .add_food(-work.food_cost_per_min * mins * decay_mult);
-            self.pet
-                .add_drink(-work.drink_cost_per_min * mins * decay_mult);
-            self.pet.add_feeling(-work.feeling_cost_per_min * mins);
-            work.remaining_secs -= step;
+            let money_delta = work.money_per_min * mins;
 
-            if work.is_finished() {
-                let bonus_mins = work.total_secs / 60.0;
-                self.pet.money += work.money_per_min * bonus_mins * work.finish_bonus;
+            if money_delta < 0.0 && self.pet.money < money_delta.abs() {
+                // Out of money to pay for study/play tuition -> cancel work!
+                self.pet.money = 0.0;
                 self.statistics.works_completed += 1;
             } else {
-                self.active_work = Some(work);
+                self.pet.money = (self.pet.money + money_delta).max(0.0);
+                let _ = self.pet.add_exp(work.exp_per_min * mins * exp_mult);
+                self.pet
+                    .add_food(-work.food_cost_per_min * mins * decay_mult);
+                self.pet
+                    .add_drink(-work.drink_cost_per_min * mins * decay_mult);
+                self.pet.add_feeling(-work.feeling_cost_per_min * mins);
+                work.remaining_secs -= step;
+
+                if work.is_finished() {
+                    let bonus_mins = work.total_secs / 60.0;
+                    if work.money_per_min > 0.0 {
+                        self.pet.money += work.money_per_min * bonus_mins * work.finish_bonus;
+                    }
+                    self.statistics.works_completed += 1;
+                } else {
+                    self.active_work = Some(work);
+                }
             }
         } else if self.pet.sleeping {
-            // Sleeping restores stamina and gently recovers health while slowing hunger/thirst.
-            self.pet.add_strength(0.35 * dt);
-            self.pet.add_food(-0.012 * dt * decay_mult);
-            self.pet.add_drink(-0.015 * dt * decay_mult);
-            if self.pet.strength_food > 25.0 && self.pet.strength_drink > 25.0 {
-                self.pet.add_health(0.04 * dt);
+            // Sleeping restores stamina and health; hunger and thirst do not drop.
+            self.pet.add_strength(0.40 * dt);
+            if self.pet.health < 100.0 {
+                self.pet.add_health(0.08 * dt);
             }
         } else {
             // Passive desktop idle metabolism.
@@ -215,8 +223,13 @@ impl World {
             self.pet.add_food(-0.025 * dt * decay_mult);
             self.pet.add_drink(-0.030 * dt * decay_mult);
             self.pet.add_feeling(-0.012 * dt * decay_mult);
-            if self.pet.strength_food > 50.0 && self.pet.strength_drink > 50.0 {
-                self.pet.add_health(0.02 * dt);
+            if self.pet.strength_food <= 0.0 || self.pet.strength_drink <= 0.0 {
+                self.pet.add_health(-0.015 * dt);
+            } else if self.pet.strength_food > 50.0
+                && self.pet.strength_drink > 50.0
+                && self.pet.health < 100.0
+            {
+                self.pet.add_health(0.03 * dt);
             }
         }
 

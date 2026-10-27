@@ -78,12 +78,16 @@ pub struct MobileEngine {
 }
 
 impl MobileEngine {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         content_root: &Path,
         save_dir: &Path,
         target_px: u32,
         ai_base: &str,
+        ai_key: &str,
         ai_model: &str,
+        ai_prompt: &str,
+        ai_timeout: u64,
     ) -> Result<Self, String> {
         let mut content = ContentDatabase::load_root(content_root);
         content.localize("en");
@@ -118,20 +122,23 @@ impl MobileEngine {
 
         let ai_cfg = AiConfig {
             enabled: true,
-            api_base: if ai_base.is_empty() {
+            api_base: if ai_base.trim().is_empty() {
                 "http://10.0.2.2:20128/v1".to_owned()
             } else {
-                ai_base.to_owned()
+                ai_base.trim().to_owned()
             },
-            api_key: String::new(),
-            model: if ai_model.is_empty() {
+            api_key: ai_key.trim().to_owned(),
+            model: if ai_model.trim().is_empty() {
                 "9routerall".to_owned()
             } else {
-                ai_model.to_owned()
+                ai_model.trim().to_owned()
             },
-            system_prompt: "You are Loris, a lively and loving desktop pet. Keep your replies concise (1-2 short sentences)."
-                .to_owned(),
-            timeout_secs: 25,
+            system_prompt: if ai_prompt.trim().is_empty() {
+                "You are Loris, a lively and affectionate desktop pet. Keep your replies concise (1-2 short sentences).".to_owned()
+            } else {
+                ai_prompt.trim().to_owned()
+            },
+            timeout_secs: ai_timeout.clamp(5, 120),
         };
         let ai_worker = AiWorker::spawn(ai_cfg);
 
@@ -201,8 +208,15 @@ impl MobileEngine {
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_secs() as i64);
 
+        let had_work = self.world.active_work.is_some();
         let prev_level = self.world.pet.level;
         self.world.tick(f64::from(dt_seconds), now_unix);
+
+        if had_work && self.world.active_work.is_none() {
+            self.anim
+                .request_state(ActionState::Idle, true, &self.anim_index, &mut self.world);
+            self.anim.show_bubble("Work completed! Great job!", 4_000);
+        }
 
         if self.world.pet.level > prev_level {
             self.anim
@@ -338,10 +352,7 @@ impl MobileEngine {
     }
 
     pub fn handle_touch(&mut self, event: &str, rel_x: f32, rel_y: f32) -> String {
-        let pet_y = rel_y - self.bubble_pad_px as f32;
-        if pet_y < 0.0 {
-            return "bubble_tap".to_owned();
-        }
+        let pet_y = (rel_y - self.bubble_pad_px as f32).max(0.0);
 
         let zone = classify_hit_zone(
             &self.pet_cfg,
@@ -453,6 +464,27 @@ impl MobileEngine {
                 self.anim.show_bubble(&msg, 3_000);
                 return msg;
             }
+            let (money_rate, exp_rate) = match w.kind {
+                vpet_content::anim::WorkKind::Work => (w.money_base, 2.0),
+                vpet_content::anim::WorkKind::Study => (-w.money_base, 10.0),
+                vpet_content::anim::WorkKind::Play => (-w.money_base, 4.0),
+            };
+            let session = vpet_core::work::WorkSession::new(
+                w.name.clone(),
+                w.graph.clone(),
+                w.time_mins,
+                money_rate,
+                exp_rate,
+                w.strength_food,
+                w.strength_drink,
+                w.feeling,
+                w.finish_bonus,
+            );
+            if let Err(e) = self.world.start_work(session, w.level_limit) {
+                let msg = format!("Cannot work: {e}");
+                self.anim.show_bubble(&msg, 3_000);
+                return msg;
+            }
             let name = w.name.clone();
             self.anim.request_state(
                 ActionState::Working {
@@ -479,6 +511,7 @@ impl MobileEngine {
     }
 
     pub fn cancel_work(&mut self) -> bool {
+        let _ = self.world.cancel_work();
         self.anim
             .request_state(ActionState::Idle, true, &self.anim_index, &mut self.world);
         self.anim.show_bubble("Break time!", 3_000);
@@ -497,6 +530,71 @@ impl MobileEngine {
         self.anim.set_auto_walk(enabled);
     }
 
+    pub fn set_target_px(&mut self, target_px: u32) {
+        self.target_px = target_px.clamp(160, 500);
+        self.bubble_pad_px = self.target_px / 3;
+        self.anim.set_target_px(self.target_px);
+        self.bubble_style.font_px = (self.target_px as f32 * 0.065).clamp(14.0, 22.0);
+        self.cached_sprite = None;
+        self.cached_bubble = None;
+        self.composited = None;
+    }
+
+    pub fn get_food_list_json(&self) -> String {
+        let foods: Vec<serde_json::Value> = self
+            .content
+            .foods
+            .all()
+            .into_iter()
+            .map(|f| {
+                serde_json::json!({
+                    "name": f.name,
+                    "category": f.category,
+                    "price": f.price,
+                    "exp": f.exp,
+                    "food": f.strength_food,
+                    "drink": f.strength_drink,
+                    "feeling": f.feeling,
+                    "health": f.health,
+                    "likability": f.likability,
+                    "desc": f.desc,
+                })
+            })
+            .collect();
+        serde_json::to_string(&foods).unwrap_or_else(|_| "[]".to_owned())
+    }
+
+    pub fn update_ai_config(
+        &mut self,
+        base: &str,
+        key: &str,
+        model: &str,
+        prompt: &str,
+        timeout_secs: u64,
+    ) {
+        let ai_cfg = AiConfig {
+            enabled: true,
+            api_base: if base.trim().is_empty() {
+                "http://10.0.2.2:20128/v1".to_owned()
+            } else {
+                base.trim().to_owned()
+            },
+            api_key: key.trim().to_owned(),
+            model: if model.trim().is_empty() {
+                "9routerall".to_owned()
+            } else {
+                model.trim().to_owned()
+            },
+            system_prompt: if prompt.trim().is_empty() {
+                "You are Loris, a lively and affectionate desktop pet. Keep your replies concise (1-2 short sentences).".to_owned()
+            } else {
+                prompt.trim().to_owned()
+            },
+            timeout_secs: timeout_secs.clamp(5, 120),
+        };
+        self.ai_worker = AiWorker::spawn(ai_cfg);
+    }
+
     pub fn get_status_json(&self) -> String {
         let p = &self.world.pet;
         let mode_str = match p.mode {
@@ -505,6 +603,13 @@ impl MobileEngine {
             ModeType::PoorCondition => "PoorCondition",
             ModeType::Ill => "Ill",
         };
+        let active_work = self.world.active_work.as_ref().map(|w| {
+            serde_json::json!({
+                "name": w.name,
+                "remaining_secs": w.remaining_secs.round() as u64,
+                "total_secs": w.total_secs.round() as u64,
+            })
+        });
         serde_json::json!({
             "name": p.name,
             "level": p.level,
@@ -519,6 +624,7 @@ impl MobileEngine {
             "strength": p.strength,
             "mode": mode_str,
             "sleeping": p.sleeping,
+            "active_work": active_work,
             "bubble": self.anim.bubble_text().unwrap_or(""),
         })
         .to_string()
@@ -569,7 +675,10 @@ pub extern "system" fn Java_org_vpet_mobile_PetBridge_nativeInit(
     save_dir: JString,
     target_px: jint,
     ai_base: JString,
+    ai_key: JString,
     ai_model: JString,
+    ai_prompt: JString,
+    ai_timeout: jint,
 ) -> jlong {
     #[cfg(target_os = "android")]
     {
@@ -592,8 +701,16 @@ pub extern "system" fn Java_org_vpet_mobile_PetBridge_nativeInit(
         .get_string(&ai_base)
         .map(|s| s.into())
         .unwrap_or_default();
+    let key_str: String = env
+        .get_string(&ai_key)
+        .map(|s| s.into())
+        .unwrap_or_default();
     let model_str: String = env
         .get_string(&ai_model)
+        .map(|s| s.into())
+        .unwrap_or_default();
+    let prompt_str: String = env
+        .get_string(&ai_prompt)
         .map(|s| s.into())
         .unwrap_or_default();
 
@@ -602,7 +719,10 @@ pub extern "system" fn Java_org_vpet_mobile_PetBridge_nativeInit(
         Path::new(&save_str),
         (target_px as u32).max(100),
         &base_str,
+        &key_str,
         &model_str,
+        &prompt_str,
+        ai_timeout.max(5) as u64,
     ) {
         Ok(engine) => Box::into_raw(Box::new(engine)) as jlong,
         Err(err) => {
@@ -828,6 +948,30 @@ pub extern "system" fn Java_org_vpet_mobile_PetBridge_nativeAskAi(
         .get_string(&prompt)
         .map(|s| s.into())
         .unwrap_or_default();
+
+    if p.trim().eq_ignore_ascii_case("unlockall") {
+        engine.world.pet.level = 100;
+        engine.world.pet.money += 100_000.0;
+        engine.world.pet.health = 100.0;
+        engine.world.pet.strength = 100.0;
+        engine.world.pet.strength_food = 100.0;
+        engine.world.pet.strength_drink = 100.0;
+        engine.world.pet.feeling = 100.0;
+        engine.world.pet.likability = 100.0;
+        let _ = engine.save_store.save_world(&engine.world);
+        engine.anim.show_bubble(
+            "Cheat: Lv.100, $100,000, all stats maxed and all jobs unlocked!",
+            6_000,
+        );
+        engine.anim.request_state(
+            ActionState::Saying,
+            true,
+            &engine.anim_index,
+            &mut engine.world,
+        );
+        return JNI_TRUE;
+    }
+
     engine.anim.show_bubble("...", 8_000);
     engine.anim.request_state(
         ActionState::Saying,
@@ -872,6 +1016,66 @@ pub extern "system" fn Java_org_vpet_mobile_PetBridge_nativeSave(
     if engine_ptr != 0 {
         let engine = unsafe { &mut *(engine_ptr as *mut MobileEngine) };
         let _ = engine.save_store.save_world(&engine.world);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_vpet_mobile_PetBridge_nativeGetFoodListJson(
+    env: JNIEnv,
+    _class: JClass,
+    engine_ptr: jlong,
+) -> jstring {
+    if engine_ptr == 0 {
+        return env.new_string("[]").unwrap().into_raw();
+    }
+    let engine = unsafe { &*(engine_ptr as *const MobileEngine) };
+    let json = engine.get_food_list_json();
+    env.new_string(json).unwrap().into_raw()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_vpet_mobile_PetBridge_nativeSetTargetPx(
+    _env: JNIEnv,
+    _class: JClass,
+    engine_ptr: jlong,
+    target_px: jint,
+) {
+    if engine_ptr != 0 {
+        let engine = unsafe { &mut *(engine_ptr as *mut MobileEngine) };
+        engine.set_target_px(target_px as u32);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_vpet_mobile_PetBridge_nativeUpdateAiConfig(
+    mut env: JNIEnv,
+    _class: JClass,
+    engine_ptr: jlong,
+    ai_base: JString,
+    ai_key: JString,
+    ai_model: JString,
+    ai_prompt: JString,
+    ai_timeout: jint,
+) {
+    if engine_ptr != 0 {
+        let engine = unsafe { &mut *(engine_ptr as *mut MobileEngine) };
+        let base: String = env
+            .get_string(&ai_base)
+            .map(|s| s.into())
+            .unwrap_or_default();
+        let key: String = env
+            .get_string(&ai_key)
+            .map(|s| s.into())
+            .unwrap_or_default();
+        let model: String = env
+            .get_string(&ai_model)
+            .map(|s| s.into())
+            .unwrap_or_default();
+        let prompt: String = env
+            .get_string(&ai_prompt)
+            .map(|s| s.into())
+            .unwrap_or_default();
+        engine.update_ai_config(&base, &key, &model, &prompt, ai_timeout.max(5) as u64);
     }
 }
 

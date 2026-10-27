@@ -45,16 +45,6 @@ struct ChatPayload {
     stream: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-struct ChatResponse {
-    choices: Vec<ChatChoice>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct ChatChoice {
-    message: ChatMessage,
-}
-
 #[derive(Debug)]
 pub struct AiChatTask {
     pub prompt: String,
@@ -188,10 +178,13 @@ fn execute_chat_query(config: &AiConfig, user_prompt: &str) -> Result<String, St
         return Err(err_msg.to_owned());
     }
 
-    if let Ok(parsed) = serde_json::from_str::<ChatResponse>(&raw_text)
-        && let Some(first) = parsed.choices.first()
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw_text)
+        && let Some(msg) = v
+            .pointer("/choices/0/message/content")
+            .or_else(|| v.pointer("/choices/0/text"))
+            .and_then(|s| s.as_str())
     {
-        let clean = first.message.content.trim().replace('\r', "");
+        let clean = msg.trim().replace('\r', "");
         if !clean.is_empty() {
             return Ok(clean);
         }
@@ -209,6 +202,8 @@ fn execute_chat_query(config: &AiConfig, user_prompt: &str) -> Result<String, St
             if let Ok(chunk) = serde_json::from_str::<serde_json::Value>(data)
                 && let Some(c) = chunk
                     .pointer("/choices/0/delta/content")
+                    .or_else(|| chunk.pointer("/choices/0/delta/text"))
+                    .or_else(|| chunk.pointer("/choices/0/text"))
                     .and_then(|v| v.as_str())
             {
                 sse_acc.push_str(c);

@@ -19,3 +19,4 @@ pub use lps::{LpsDocument, LpsError, LpsLine, LpsSub, unescape_lps};
 pub use scan::{ContentDatabase, ModMetadata};
 pub use text::{ClickTextEntry, LowTextEntry, TextDatabase};
 pub use theme::{ThemeDef, parse_hex_argb};
+pub use vpet_core::ModeType;
