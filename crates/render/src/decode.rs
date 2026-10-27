@@ -186,9 +186,9 @@ pub fn decode_animation_source(
                 find_layer_dir(dir, *mode, "back").and_then(|d| decode_png_dir(&d, target_size));
             let front =
                 find_layer_dir(dir, *mode, "front").and_then(|d| decode_png_dir(&d, target_size));
-            let item_icon = item_icon_path.as_deref().and_then(|p| {
-                load_sprite_scaled(p, (target_size / 2).max(32), (target_size / 2).max(32)).ok()
-            });
+            let item_icon = item_icon_path
+                .as_deref()
+                .and_then(|p| crate::canvas::load_sprite(p).ok());
 
             Ok(crate::food::compose_food_animation(
                 key,

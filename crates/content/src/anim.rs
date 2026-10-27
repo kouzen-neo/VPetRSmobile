@@ -992,7 +992,13 @@ fn parse_food_keyframe(spec: &str) -> Option<FoodKeyframe> {
     let opacity = parts
         .get(5)
         .and_then(|s| s.parse::<f32>().ok())
-        .map_or(1.0, |v| (v / 100.0).clamp(0.0, 1.0));
+        .map_or(1.0, |v| {
+            if v > 1.0 {
+                (v / 100.0).clamp(0.0, 1.0)
+            } else {
+                v.clamp(0.0, 1.0)
+            }
+        });
     Some(FoodKeyframe {
         duration_ms,
         visible: true,

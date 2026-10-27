@@ -131,11 +131,43 @@ class PetOverlayService : Service() {
         setupFloatingPet()
     }
 
+    private fun extractAssetsSync(coreDir: File) {
+        try {
+            assets.open("0000_core.zip").use { input ->
+                java.util.zip.ZipInputStream(input).use { zip ->
+                    coreDir.mkdirs()
+                    var entry = zip.nextEntry
+                    while (entry != null) {
+                        val outFile = File(coreDir, entry.name)
+                        if (entry.isDirectory) {
+                            outFile.mkdirs()
+                        } else {
+                            outFile.parentFile?.mkdirs()
+                            java.io.FileOutputStream(outFile).use { fos ->
+                                zip.copyTo(fos)
+                            }
+                        }
+                        zip.closeEntry()
+                        entry = zip.nextEntry
+                    }
+                }
+            }
+            prefs.edit().putInt("assets_version", 10).apply()
+        } catch (e: Exception) {
+            android.util.Log.e("VPetMobile", "Failed to extract assets in service", e)
+        }
+    }
+
     private fun setupFloatingPet() {
         val targetPx = prefs.getInt("pet_scale_px", 280).coerceIn(160, 500)
         val bubblePadPx = targetPx / 3
 
         val contentDir = File(filesDir, "content/0000_core")
+        val sampleFood = File(contentDir, "image/food/三明治.png")
+        if (!sampleFood.exists() || !File(contentDir, "info.lps").exists()) {
+            extractAssetsSync(contentDir)
+        }
+
         val saveDir = File(filesDir, "saves")
         saveDir.mkdirs()
 
@@ -794,6 +826,8 @@ class PetOverlayService : Service() {
             elevation = 28f
         }
 
+        val dm = resources.displayMetrics
+
         // Header
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -867,24 +901,44 @@ class PetOverlayService : Service() {
                 val feelGain = item.optDouble("feeling", 0.0).toInt()
                 val healthGain = item.optDouble("health", 0.0).toInt()
                 val desc = item.optString("desc", "")
+                val imagePath = item.optString("image_path", "")
 
                 val rowCard = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setPadding(20, 16, 20, 16)
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(16, 14, 16, 14)
                     background = GradientDrawable().apply {
                         setColor(0xFFF8FAFC.toInt())
-                        cornerRadius = 16f
+                        cornerRadius = 18f
                         setStroke(1, 0xFFE2E8F0.toInt())
                     }
                     layoutParams = LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply { setMargins(0, 0, 0, 12) }
+                    ).apply { setMargins(0, 0, 0, 10) }
                 }
 
-                val rowHeader = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
+                val ivIcon = android.widget.ImageView(this).apply {
+                    val iconSize = (42 * dm.density).toInt()
+                    layoutParams = LinearLayout.LayoutParams(iconSize, iconSize).apply {
+                        setMargins(0, 0, (12 * dm.density).toInt(), 0)
+                    }
+                    scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+                    if (imagePath.isNotEmpty()) {
+                        val imgFile = File(imagePath)
+                        if (imgFile.exists()) {
+                            val bm = android.graphics.BitmapFactory.decodeFile(imagePath)
+                            if (bm != null) {
+                                setImageBitmap(bm)
+                            }
+                        }
+                    }
+                }
+                rowCard.addView(ivIcon)
+
+                val colDetails = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 }
 
                 val tvItemName = TextView(this).apply {
@@ -892,29 +946,8 @@ class PetOverlayService : Service() {
                     textSize = 13f
                     setTypeface(null, Typeface.BOLD)
                     setTextColor(0xFF0F172A.toInt())
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 }
-                rowHeader.addView(tvItemName)
-
-                val btnBuy = Button(this).apply {
-                    text = "Buy $${String.format("%.1f", price)}"
-                    textSize = 11f
-                    isAllCaps = false
-                    setTextColor(0xFFFFFFFF.toInt())
-                    background = GradientDrawable().apply {
-                        setColor(0xFF0288D1.toInt())
-                        cornerRadius = 16f
-                    }
-                    setOnClickListener {
-                        if (enginePtr != 0L) {
-                            val res = PetBridge.nativeFeed(enginePtr, name)
-                            Toast.makeText(this@PetOverlayService, res, Toast.LENGTH_SHORT).show()
-                            dismissStore()
-                        }
-                    }
-                }
-                rowHeader.addView(btnBuy)
-                rowCard.addView(rowHeader)
+                colDetails.addView(tvItemName)
 
                 val tvStatBoost = TextView(this).apply {
                     val buffs = mutableListOf<String>()
@@ -925,18 +958,44 @@ class PetOverlayService : Service() {
                     text = buffs.joinToString(" • ")
                     textSize = 11f
                     setTextColor(0xFF0288D1.toInt())
-                    setPadding(0, 4, 0, if (desc.isNotEmpty()) 4 else 0)
+                    setPadding(0, 2, 0, if (desc.isNotEmpty()) 2 else 0)
                 }
-                rowCard.addView(tvStatBoost)
+                colDetails.addView(tvStatBoost)
 
                 if (desc.isNotEmpty()) {
                     val tvDesc = TextView(this).apply {
                         text = desc
-                        textSize = 11f
+                        textSize = 10f
                         setTextColor(0xFF64748B.toInt())
                     }
-                    rowCard.addView(tvDesc)
+                    colDetails.addView(tvDesc)
                 }
+                rowCard.addView(colDetails)
+
+                val btnBuy = Button(this).apply {
+                    text = "$${String.format("%.1f", price)}"
+                    textSize = 11f
+                    isAllCaps = false
+                    setTextColor(0xFFFFFFFF.toInt())
+                    background = GradientDrawable().apply {
+                        setColor(0xFF0288D1.toInt())
+                        cornerRadius = 16f
+                    }
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        setMargins((8 * dm.density).toInt(), 0, 0, 0)
+                    }
+                    setOnClickListener {
+                        if (enginePtr != 0L) {
+                            val res = PetBridge.nativeFeed(enginePtr, name)
+                            Toast.makeText(this@PetOverlayService, res, Toast.LENGTH_SHORT).show()
+                            dismissStore()
+                        }
+                    }
+                }
+                rowCard.addView(btnBuy)
 
                 itemsLayout.addView(rowCard)
                 displayed++
@@ -981,7 +1040,6 @@ class PetOverlayService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
-        val dm = resources.displayMetrics
         val storeWidth = (dm.widthPixels * 0.90).toInt().coerceAtMost(1000)
 
         val storeParams = WindowManager.LayoutParams(

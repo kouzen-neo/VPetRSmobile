@@ -69,6 +69,17 @@ pub fn scale_pixmap(src: &Pixmap, target_w: u32, target_h: u32) -> Result<Pixmap
     Ok(dst)
 }
 
+/// Decode a PNG/WebP/GIF first frame from disk at original resolution.
+pub fn load_sprite(path: &Path) -> Result<Pixmap, RenderError> {
+    let decoded = image::open(path)
+        .map_err(|source| RenderError::ImageDecode {
+            path: path.display().to_string(),
+            source,
+        })?
+        .into_rgba8();
+    rgba_image_to_pixmap(&decoded)
+}
+
 /// Decode a PNG/WebP/GIF first frame from disk and scale to `(target_w, target_h)`.
 pub fn load_sprite_scaled(
     path: &Path,

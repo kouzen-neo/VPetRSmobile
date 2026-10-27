@@ -469,7 +469,13 @@ impl MobileEngine {
                 .foods
                 .get("Sandwich")
                 .or_else(|| self.content.foods.get("Bread"))
-                .or_else(|| self.content.foods.get("Cookie"));
+                .or_else(|| {
+                    self.content
+                        .foods
+                        .all()
+                        .into_iter()
+                        .find(|f| f.graph == "eat" && f.image_path.is_some())
+                });
             (
                 default_snack_effect(),
                 snack_item.and_then(|f| f.image_path.clone()),
@@ -621,6 +627,7 @@ impl MobileEngine {
                     "health": f.health,
                     "likability": f.likability,
                     "desc": f.desc,
+                    "image_path": f.image_path.as_ref().map(|p| p.to_string_lossy().to_string()),
                 })
             })
             .collect();

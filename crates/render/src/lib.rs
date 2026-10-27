@@ -10,7 +10,7 @@ pub mod text;
 
 pub use cache::{DEFAULT_CACHE_MAX_BYTES, FrameCache};
 pub use canvas::{
-    RenderError, blit_pixmap_to_bgra, clear_bgra_rect, load_sprite_scaled,
+    RenderError, blit_pixmap_to_bgra, clear_bgra_rect, load_sprite, load_sprite_scaled,
     procedural_mascot_pixmap, rgba_image_to_pixmap, scale_pixmap,
 };
 pub use damage::DamageRect;
