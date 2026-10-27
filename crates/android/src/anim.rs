@@ -241,19 +241,7 @@ impl InteractionController {
         world: &mut World,
     ) {
         world.output_positions.insert(output_name.to_owned(), pos);
-        if pos.0 <= 20 {
-            self.request_state(
-                ActionState::SideHide {
-                    left: true,
-                    rising: false,
-                },
-                true,
-                index,
-                world,
-            );
-        } else {
-            self.request_state(ActionState::Raised { dropping: true }, true, index, world);
-        }
+        self.request_state(ActionState::Raised { dropping: true }, true, index, world);
     }
 
     pub fn on_click_zone(
@@ -393,20 +381,6 @@ impl InteractionController {
                 world.output_positions.insert(output_name.to_owned(), *pos);
 
                 if (next_x == 0 && dir_x < 0) || (next_x == max_x && dir_x > 0) {
-                    let is_left = next_x == 0;
-                    let roll = world.rng.next_u64();
-                    if roll.is_multiple_of(3) {
-                        self.request_state(
-                            ActionState::SideHide {
-                                left: is_left,
-                                rising: false,
-                            },
-                            true,
-                            index,
-                            world,
-                        );
-                        return;
-                    }
                     let flipped = -dir_x;
                     self.request_state(
                         ActionState::Moving {
