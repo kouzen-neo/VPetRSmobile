@@ -679,41 +679,44 @@ class PetOverlayService : Service() {
             }
 
             val tvPrompt = TextView(this).apply {
-                text = "Available Work / Study / Play tasks:"
+                text = "Available Work / Study / Play tasks (13 total):"
                 textSize = 13f
                 setTextColor(0xFF64748B.toInt())
-                setPadding(0, 0, 0, 12)
+                setPadding(0, 0, 0, 10)
             }
             subContentPanel.addView(tvPrompt)
 
-            val works = arrayOf(
-                Triple("Copywriting", "Copywrite (Work)", 0),
-                Triple("Learning", "Study (Learning)", 0),
-                Triple("Gaming", "Gaming (Play)", 0),
-                Triple("Barbecue", "Barbecue (Work)", 5),
-                Triple("Screen cleaning", "Clean Screen (Work)", 10),
-                Triple("Livestreaming", "Livestream (Work)", 20),
-                Triple("Cancel", "Take a Break", 0)
-            )
+            val workJson = if (enginePtr != 0L) PetBridge.nativeGetWorkListJson(enginePtr) else "[]"
+            val workArray = try {
+                JSONArray(workJson)
+            } catch (_: Exception) {
+                JSONArray()
+            }
 
-            for ((workKey, displayLabel, minLv) in works) {
+            val workListContainer = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+            }
+
+            for (i in 0 until workArray.length()) {
+                val item = workArray.optJSONObject(i) ?: continue
+                val name = item.optString("name", "")
+                val kind = item.optString("kind", "Work")
+                val minLv = item.optInt("level_limit", 0)
+                val timeMins = item.optInt("time_mins", 10)
                 val isUnlocked = petLevel >= minLv
+
+                val displayLabel = "$name ($kind - ${timeMins}m)"
+
                 val btn = Button(this).apply {
-                    text = if (isUnlocked || workKey == "Cancel") {
+                    text = if (isUnlocked) {
                         displayLabel
                     } else {
                         "$displayLabel (Req Lv.$minLv)"
                     }
                     textSize = 12f
                     isAllCaps = false
-                    isEnabled = isUnlocked || workKey == "Cancel"
-                    setTextColor(
-                        when {
-                            workKey == "Cancel" -> 0xFFD32F2F.toInt()
-                            isUnlocked -> 0xFF0288D1.toInt()
-                            else -> 0xFF94A3B8.toInt()
-                        }
-                    )
+                    isEnabled = isUnlocked
+                    setTextColor(if (isUnlocked) 0xFF0288D1.toInt() else 0xFF94A3B8.toInt())
                     background = GradientDrawable().apply {
                         setColor(if (isUnlocked) 0xFFF8FAFC.toInt() else 0xFFF1F5F9.toInt())
                         cornerRadius = 16f
@@ -725,17 +728,22 @@ class PetOverlayService : Service() {
                     ).apply { setMargins(0, 0, 0, 8) }
                     setOnClickListener {
                         if (enginePtr != 0L) {
-                            if (workKey == "Cancel") {
-                                PetBridge.nativeCancelWork(enginePtr)
-                            } else {
-                                PetBridge.nativeStartWork(enginePtr, workKey)
-                            }
+                            PetBridge.nativeStartWork(enginePtr, name)
                             dismissMenu()
                         }
                     }
                 }
-                subContentPanel.addView(btn)
+                workListContainer.addView(btn)
             }
+
+            val workScroll = ScrollView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    (resources.displayMetrics.heightPixels * 0.38).toInt()
+                )
+            }
+            workScroll.addView(workListContainer)
+            subContentPanel.addView(workScroll)
         }
 
         tabsRow.addView(createTabBtn("Chat") { showChatTab() })

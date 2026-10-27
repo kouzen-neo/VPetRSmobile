@@ -35,6 +35,8 @@ object PetBridge {
 
     external fun nativeGetFoodListJson(enginePtr: Long): String
 
+    external fun nativeGetWorkListJson(enginePtr: Long): String
+
     external fun nativeFeed(enginePtr: Long, foodName: String): String
 
     external fun nativeToggleSleep(enginePtr: Long): Boolean

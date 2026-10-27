@@ -636,6 +636,30 @@ impl MobileEngine {
         serde_json::to_string(&foods).unwrap_or_else(|_| "[]".to_owned())
     }
 
+    pub fn get_work_list_json(&self) -> String {
+        let works: Vec<serde_json::Value> = self
+            .pet_cfg
+            .works
+            .iter()
+            .map(|w| {
+                let kind_str = match w.kind {
+                    vpet_content::anim::WorkKind::Work => "Work",
+                    vpet_content::anim::WorkKind::Study => "Study",
+                    vpet_content::anim::WorkKind::Play => "Play",
+                };
+                serde_json::json!({
+                    "name": w.name,
+                    "graph": w.graph,
+                    "kind": kind_str,
+                    "level_limit": w.level_limit,
+                    "time_mins": w.time_mins,
+                    "money_base": w.money_base,
+                })
+            })
+            .collect();
+        serde_json::to_string(&works).unwrap_or_else(|_| "[]".to_owned())
+    }
+
     pub fn update_ai_config(
         &mut self,
         base: &str,
@@ -1102,6 +1126,20 @@ pub extern "system" fn Java_org_vpet_mobile_PetBridge_nativeGetFoodListJson(
     }
     let engine = unsafe { &*(engine_ptr as *const MobileEngine) };
     let json = engine.get_food_list_json();
+    env.new_string(json).unwrap().into_raw()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_vpet_mobile_PetBridge_nativeGetWorkListJson(
+    env: JNIEnv,
+    _class: JClass,
+    engine_ptr: jlong,
+) -> jstring {
+    if engine_ptr == 0 {
+        return env.new_string("[]").unwrap().into_raw();
+    }
+    let engine = unsafe { &*(engine_ptr as *const MobileEngine) };
+    let json = engine.get_work_list_json();
     env.new_string(json).unwrap().into_raw()
 }
 
