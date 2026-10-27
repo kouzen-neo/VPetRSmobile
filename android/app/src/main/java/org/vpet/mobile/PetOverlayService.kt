@@ -295,9 +295,12 @@ class PetOverlayService : Service() {
             setPadding(0, 0, 0, 16)
         }
 
+        val expCur = petState.optDouble("exp", 0.0).toInt()
+        val expNeed = petState.optDouble("exp_need", 100.0).toInt()
+
         val tvTitle = TextView(this).apply {
-            text = "$petName • Lv.$petLevel ($petMode)"
-            textSize = 15f
+            text = "$petName - Lv.$petLevel ($expCur / $expNeed EXP)"
+            textSize = 14f
             setTypeface(null, Typeface.BOLD)
             setTextColor(0xFF0F172A.toInt())
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -305,7 +308,7 @@ class PetOverlayService : Service() {
         header.addView(tvTitle)
 
         val btnClose = TextView(this).apply {
-            text = "✕"
+            text = "X"
             textSize = 18f
             setTypeface(null, Typeface.BOLD)
             setTextColor(0xFF64748B.toInt())
@@ -362,7 +365,7 @@ class PetOverlayService : Service() {
             subContentPanel.addView(etChat)
 
             val btnSend = Button(this).apply {
-                text = "💬 Send to AI"
+                text = "Send to AI"
                 textSize = 13f
                 isAllCaps = false
                 setTextColor(0xFFFFFFFF.toInt())
@@ -428,10 +431,10 @@ class PetOverlayService : Service() {
             subContentPanel.addView(tvPrompt)
 
             val foods = arrayOf(
-                "Snack" to "🍪 Snack",
-                "Fruit Juice" to "🧃 Fruit Juice",
-                "1L Pure Water" to "💧 1L Pure Water",
-                "Sandwich" to "🥪 Sandwich"
+                "Snack" to "Snack",
+                "Fruit Juice" to "Fruit Juice",
+                "1L Pure Water" to "1L Pure Water",
+                "Sandwich" to "Sandwich"
             )
 
             val grid = LinearLayout(this).apply {
@@ -474,20 +477,35 @@ class PetOverlayService : Service() {
             subContentPanel.addView(tvPrompt)
 
             val works = arrayOf(
-                "Copywriting" to "✍️ Copywrite (Work)",
-                "Learning" to "📚 Study (Learning)",
-                "Gaming" to "🎮 Gaming (Play)",
-                "Cancel" to "🛑 Take a Break"
+                Triple("Copywriting", "Copywrite (Work)", 0),
+                Triple("Learning", "Study (Learning)", 0),
+                Triple("Gaming", "Gaming (Play)", 0),
+                Triple("Barbecue", "Barbecue (Work)", 5),
+                Triple("Screen cleaning", "Clean Screen (Work)", 10),
+                Triple("Livestreaming", "Livestream (Work)", 20),
+                Triple("Cancel", "Take a Break", 0)
             )
 
-            for ((workKey, displayLabel) in works) {
+            for ((workKey, displayLabel, minLv) in works) {
+                val isUnlocked = petLevel >= minLv
                 val btn = Button(this).apply {
-                    text = displayLabel
+                    text = if (isUnlocked || workKey == "Cancel") {
+                        displayLabel
+                    } else {
+                        "$displayLabel (Req Lv.$minLv)"
+                    }
                     textSize = 12f
                     isAllCaps = false
-                    setTextColor(if (workKey == "Cancel") 0xFFD32F2F.toInt() else 0xFF0288D1.toInt())
+                    isEnabled = isUnlocked || workKey == "Cancel"
+                    setTextColor(
+                        when {
+                            workKey == "Cancel" -> 0xFFD32F2F.toInt()
+                            isUnlocked -> 0xFF0288D1.toInt()
+                            else -> 0xFF94A3B8.toInt()
+                        }
+                    )
                     background = GradientDrawable().apply {
-                        setColor(0xFFF8FAFC.toInt())
+                        setColor(if (isUnlocked) 0xFFF8FAFC.toInt() else 0xFFF1F5F9.toInt())
                         cornerRadius = 16f
                         setStroke(1, 0xFFE2E8F0.toInt())
                     }
@@ -510,16 +528,16 @@ class PetOverlayService : Service() {
             }
         }
 
-        tabsRow.addView(createTabBtn("💬 Chat") { showChatTab() })
-        tabsRow.addView(createTabBtn("🍽️ Feed") { showFeedTab() })
-        tabsRow.addView(createTabBtn("💼 Work") { showWorkTab() })
-        tabsRow.addView(createTabBtn(if (isSleeping) "☀️ Wake" else "💤 Sleep") {
+        tabsRow.addView(createTabBtn("Chat") { showChatTab() })
+        tabsRow.addView(createTabBtn("Feed") { showFeedTab() })
+        tabsRow.addView(createTabBtn("Work") { showWorkTab() })
+        tabsRow.addView(createTabBtn(if (isSleeping) "Wake" else "Sleep") {
             if (enginePtr != 0L) {
                 PetBridge.nativeToggleSleep(enginePtr)
                 dismissMenu()
             }
         })
-        tabsRow.addView(createTabBtn("❌ Close") {
+        tabsRow.addView(createTabBtn("Close") {
             stopSelf()
         })
 

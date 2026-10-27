@@ -215,7 +215,7 @@ class MainActivity : AppCompatActivity() {
         statusCard.addView(progressExtract)
 
         btnReextract = Button(this).apply {
-            text = "🔄 Force Re-Extract Complete Assets"
+            text = "Force Re-Extract Complete Assets"
             textSize = 12f
             isAllCaps = false
             setTextColor(0xFF0288D1.toInt())
@@ -268,7 +268,7 @@ class MainActivity : AppCompatActivity() {
 
         // Main Controls (Start / Stop)
         btnToggleService = Button(this).apply {
-            text = "▶ Start Floating Pet"
+            text = "Start Floating Pet"
             textSize = 15f
             setTypeface(null, Typeface.BOLD)
             setTextColor(0xFFFFFFFF.toInt())
@@ -287,7 +287,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(btnToggleService)
 
         btnStopService = Button(this).apply {
-            text = "⏹ Stop Pet Service"
+            text = "Stop Pet Service"
             textSize = 14f
             setTextColor(0xFF475569.toInt())
             background = GradientDrawable().apply {

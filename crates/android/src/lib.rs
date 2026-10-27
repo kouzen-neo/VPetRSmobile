@@ -201,7 +201,13 @@ impl MobileEngine {
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_secs() as i64);
 
+        let prev_level = self.world.pet.level;
         self.world.tick(f64::from(dt_seconds), now_unix);
+
+        if self.world.pet.level > prev_level {
+            self.anim
+                .show_bubble(format!("Level Up! Lv.{}!", self.world.pet.level), 5_000);
+        }
 
         let dt_ms = (dt_seconds * 1000.0).round() as u32;
         let durs: Option<Vec<u32>> = self
@@ -419,6 +425,11 @@ impl MobileEngine {
             w.name.eq_ignore_ascii_case(work_name) || w.graph.eq_ignore_ascii_case(work_name)
         });
         if let Some(w) = work {
+            if self.world.pet.level < w.level_limit {
+                let msg = format!("Locked! Requires Lv.{}", w.level_limit);
+                self.anim.show_bubble(&msg, 3_000);
+                return msg;
+            }
             let name = w.name.clone();
             self.anim.request_state(
                 ActionState::Working {
@@ -475,6 +486,7 @@ impl MobileEngine {
             "name": p.name,
             "level": p.level,
             "exp": p.exp,
+            "exp_need": p.level_up_need(),
             "money": p.money,
             "food": p.strength_food,
             "drink": p.strength_drink,
