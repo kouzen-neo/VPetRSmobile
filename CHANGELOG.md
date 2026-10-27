@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [v1.0.3] - 2026-10-27
+
+### Added
+
+- **Random Idle Fidgets (`IDEL` animations)**:
+  - Added `ActionState::Fidget` in Rust animation controller triggering random idle actions every 5 seconds (yawning, bubbles, cat meow/meowlook, tennis, squatting, looking aside, getting bored).
+- **Auto-Walking Floating Window Sync**:
+  - Connected native walking steps to Android `WindowManager.LayoutParams.x`, allowing pet to physically stroll horizontally across phone screen and bounce at edges.
+  - Added JNI bindings `nativeSetPos`, `nativeGetPosX`, `nativeSetScreenBounds`, `nativeSetAutoWalk`.
+  - Added Auto-Walk toggle in `MainActivity`.
+
+## [v1.0.2] - 2026-10-27
+
+### Fixed
+
+- **Complete Asset Catalog**:
+  - Included 100% of VPet animation sets in `0000_core.zip` (all `WORK` jobs, `MOVE` directional walks, `LevelUP`, `State`, etc.).
+  - Added automatic asset migration to overwrite incomplete starter packs.
+- **In-App Dark Mode Font Visibility**:
+  - Switched `themes.xml` to Light theme and set explicit dark slate font colors to prevent white-on-white text in Android Dark Mode.
+
+## [v1.0.1] - 2026-10-27
+
+### Added
+
+- **Desktop-Style Floating Menu**:
+  - Added long-press popup card containing Chat, Feed, Work, and Sleep tabs.
+- **Service Persistence**:
+  - Configured `stopWithTask=false` to keep pet floating when app is cleared from recents.
+
 ## [v1.0.0] - 2026-10-27
 
 ### Added
