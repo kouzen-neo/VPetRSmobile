@@ -152,7 +152,7 @@ class PetOverlayService : Service() {
                     }
                 }
             }
-            prefs.edit().putInt("assets_version", 10).apply()
+            prefs.edit().putInt("assets_version", 15).apply()
         } catch (e: Exception) {
             android.util.Log.e("VPetMobile", "Failed to extract assets in service", e)
         }
@@ -164,7 +164,8 @@ class PetOverlayService : Service() {
 
         val contentDir = File(filesDir, "content/0000_core")
         val sampleFood = File(contentDir, "image/food/三明治.png")
-        if (!sampleFood.exists() || !File(contentDir, "info.lps").exists()) {
+        val giftDir = File(contentDir, "pet/vup/Gift")
+        if (!sampleFood.exists() || !giftDir.exists() || !File(contentDir, "info.lps").exists()) {
             extractAssetsSync(contentDir)
         }
 

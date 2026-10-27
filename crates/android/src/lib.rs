@@ -490,6 +490,8 @@ impl MobileEngine {
             Ok(gained_levels) => {
                 let msg = if graph == "drink" {
                     format!("Gulp gulp... ({label})")
+                } else if graph == "gift" {
+                    format!("Thank you so much! ({label})")
                 } else {
                     format!("Yum! ({label})")
                 };

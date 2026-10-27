@@ -31,7 +31,7 @@ import kotlin.concurrent.thread
 class MainActivity : AppCompatActivity() {
 
     companion object {
-        const val CURRENT_ASSETS_VERSION = 10
+        const val CURRENT_ASSETS_VERSION = 15
     }
 
     private lateinit var prefs: SharedPreferences
@@ -91,9 +91,10 @@ class MainActivity : AppCompatActivity() {
         val sideHideDir = File(coreDir, "pet/vup/SideHide_Left_Main")
         val foodImgDir = File(coreDir, "image/food")
         val sampleFood = File(foodImgDir, "三明治.png")
+        val giftDir = File(coreDir, "pet/vup/Gift")
         val savedVer = prefs.getInt("assets_version", 0)
 
-        if (!force && savedVer >= CURRENT_ASSETS_VERSION && sideHideDir.exists() && foodImgDir.exists() && sampleFood.exists()) {
+        if (!force && savedVer >= CURRENT_ASSETS_VERSION && sideHideDir.exists() && foodImgDir.exists() && sampleFood.exists() && giftDir.exists()) {
             tvStatus.text = "All pet assets ready! Tap Start below."
             tvStatus.setTextColor(0xFF16A34A.toInt())
             progressExtract.visibility = View.GONE

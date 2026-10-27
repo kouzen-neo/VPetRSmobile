@@ -20,26 +20,15 @@ import os, zipfile
 core_dir = '/home/kouzen/Documents/VPet/VPet-Simulator.Windows/mod/0000_core'
 out_zip = '$ROOT/android/app/src/main/assets/0000_core.zip'
 os.makedirs(os.path.dirname(out_zip), exist_ok=True)
-included_vup = {
-    'Default', 'IDEL', 'Touch_Head', 'Touch_Body', 'Pinch', 'Raise',
-    'Sleep', 'Say', 'Eat', 'Drink', 'State', 'WORK', 'MOVE',
-    'StartUP', 'Switch', 'Think', 'LevelUP',
-    'SideHide_Left_Main', 'SideHide_Left_Rise', 'SideHide_Right_Main', 'SideHide_Right_Rise'
-}
 with zipfile.ZipFile(out_zip, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
     for root, dirs, files in os.walk(core_dir):
         rel = os.path.relpath(root, core_dir)
         parts = rel.split(os.sep)
-        if parts[0] == 'pet' and len(parts) >= 2 and parts[1] == 'vup':
-            if len(parts) > 2 and parts[2] not in included_vup:
-                continue
-        elif parts[0] in {'file', 'photo'}:
+        if parts[0] in {'file', 'photo'}:
             continue
         for f in files:
             full_path = os.path.join(root, f)
             rel_path = os.path.relpath(full_path, core_dir)
-            if parts[0] == 'pet' and len(parts) == 2 and parts[1] == 'vup' and f not in included_vup and f != 'vup.lps':
-                continue
             z.write(full_path, rel_path)
 print('Assets packaged successfully into 0000_core.zip')
 "
