@@ -393,7 +393,24 @@ impl MobileEngine {
 
     pub fn feed(&mut self, food_name: &str) -> String {
         let item = self.content.foods.get(food_name);
-        let eff = if let Some(it) = item {
+        let eff = if food_name.eq_ignore_ascii_case("medicine")
+            || food_name.eq_ignore_ascii_case("pill")
+            || food_name.eq_ignore_ascii_case("cure")
+        {
+            FoodEffect {
+                name: "Medicine".to_owned(),
+                price: 0.0,
+                exp: 10.0,
+                strength: 30.0,
+                strength_food: 20.0,
+                strength_drink: 20.0,
+                feeling: 20.0,
+                health: 50.0,
+                likability: 3.0,
+                buff_id: None,
+                buff_time_mins: 0,
+            }
+        } else if let Some(it) = item {
             food_item_to_effect(it)
         } else {
             default_snack_effect()
@@ -417,7 +434,13 @@ impl MobileEngine {
     }
 
     pub fn toggle_sleep(&mut self) -> bool {
-        self.anim.toggle_sleep(&self.anim_index, &mut self.world)
+        let is_sleeping = self.anim.toggle_sleep(&self.anim_index, &mut self.world);
+        if is_sleeping {
+            self.anim.show_bubble("Going to sleep... Zzz", 3_000);
+        } else {
+            self.anim.show_bubble("Good morning! I am awake!", 3_000);
+        }
+        is_sleeping
     }
 
     pub fn start_work(&mut self, work_name: &str) -> String {
@@ -523,12 +546,12 @@ fn default_snack_effect() -> FoodEffect {
         name: "Snack".to_owned(),
         price: 0.0,
         exp: 8.0,
-        strength: 15.0,
-        strength_food: 25.0,
-        strength_drink: 15.0,
-        feeling: 10.0,
-        health: 1.0,
-        likability: 0.5,
+        strength: 25.0,
+        strength_food: 40.0,
+        strength_drink: 25.0,
+        feeling: 20.0,
+        health: 20.0,
+        likability: 1.0,
         buff_id: None,
         buff_time_mins: 0,
     }

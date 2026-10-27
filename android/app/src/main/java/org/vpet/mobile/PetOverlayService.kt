@@ -318,6 +318,24 @@ class PetOverlayService : Service() {
         header.addView(btnClose)
         cardRoot.addView(header)
 
+        val food = petState.optDouble("food", 100.0).toInt()
+        val drink = petState.optDouble("drink", 100.0).toInt()
+        val health = petState.optDouble("health", 100.0).toInt()
+
+        val tvStats = TextView(this).apply {
+            val statusSummary = when {
+                isSleeping -> "Status: Sleeping (Tap Wake to wake up)"
+                petMode == "Ill" -> "Status: Ill (Low Health! Feed Medicine)"
+                petMode == "PoorCondition" -> "Status: Exhausted / Hungry (Feed Snack)"
+                else -> "Status: $petMode (Energetic)"
+            }
+            text = "$statusSummary\nHunger: $food% | Thirst: $drink% | Health: $health%"
+            textSize = 12f
+            setTextColor(if (petMode == "Ill" || petMode == "PoorCondition") 0xFFDC2626.toInt() else 0xFF475569.toInt())
+            setPadding(0, 0, 0, 12)
+        }
+        cardRoot.addView(tvStats)
+
         // 2. Action Tabs Bar
         val tabsRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -433,8 +451,8 @@ class PetOverlayService : Service() {
             val foods = arrayOf(
                 "Snack" to "Snack",
                 "Fruit Juice" to "Fruit Juice",
-                "1L Pure Water" to "1L Pure Water",
-                "Sandwich" to "Sandwich"
+                "Sandwich" to "Sandwich",
+                "Medicine" to "Medicine (Heal)"
             )
 
             val grid = LinearLayout(this).apply {
