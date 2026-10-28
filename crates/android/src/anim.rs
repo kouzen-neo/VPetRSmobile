@@ -58,6 +58,14 @@ impl TouchKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClimbKind {
+    LeftWall,
+    RightWall,
+    TopCeilingLeft,
+    TopCeilingRight,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SwitchKind {
     Up,
     Down,
@@ -66,7 +74,7 @@ pub enum SwitchKind {
 }
 
 /// High-level behavioral state ordered by priority:
-/// `Raised (100) > Shutdown (95) > StartUp (85) > LevelUp (80) > Pinch (75) > Touch (70) > Eating (65) > Switch (60) > Working (50) > Thinking (45) > Saying (40) > SideHide (35) > Moving (30) > StateOne (25) > IdleFidget (22) > Idle (20) > Sleeping (10)`.
+/// `Raised (100) > Shutdown (95) > StartUp (85) > LevelUp (80) > Pinch (75) > Touch (70) > Eating (65) > Switch (60) > Working (50) > Thinking (45) > Saying (40) > SideHide (35) > Climbing (35) > Falling (35) > Moving (30) > StateOne (25) > IdleFidget (22) > Idle (20) > Sleeping (10)`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActionState {
     StartUp,
@@ -85,6 +93,13 @@ pub enum ActionState {
         dir_x: i32,
         speed_px_per_sec: i32,
         loops_remaining: u32,
+    },
+    Climbing {
+        kind: ClimbKind,
+        loops_remaining: u32,
+    },
+    Falling {
+        left: bool,
     },
     SideHide {
         left: bool,
@@ -110,6 +125,7 @@ pub enum ActionState {
     },
     Raised {
         dropping: bool,
+        is_static: bool,
     },
 }
 
@@ -123,6 +139,8 @@ impl ActionState {
             Self::StateOne => 25,
             Self::Moving { .. } => 30,
             Self::SideHide { .. } => 35,
+            Self::Climbing { .. } => 35,
+            Self::Falling { .. } => 35,
             Self::Saying => 40,
             Self::Thinking => 45,
             Self::Working { .. } => 50,
@@ -188,6 +206,7 @@ pub struct InteractionController {
     prev_mode: ModeType,
     prev_food: f64,
     prev_drink: f64,
+    drag_still_elapsed_ms: u32,
 }
 
 impl InteractionController {
@@ -206,6 +225,7 @@ impl InteractionController {
             prev_mode: ModeType::Nomal,
             prev_food: 100.0,
             prev_drink: 100.0,
+            drag_still_elapsed_ms: 0,
         }
     }
 
@@ -312,7 +332,30 @@ impl InteractionController {
     }
 
     pub fn on_drag_start(&mut self, index: &AnimationIndex, world: &mut World) {
-        self.request_state(ActionState::Raised { dropping: false }, true, index, world);
+        self.drag_still_elapsed_ms = 0;
+        self.request_state(
+            ActionState::Raised {
+                dropping: false,
+                is_static: false,
+            },
+            true,
+            index,
+            world,
+        );
+    }
+
+    /// Keep the held animation alive while the finger moves and cancel the relaxed pose.
+    pub fn on_drag_motion(&mut self, index: &AnimationIndex, world: &mut World) {
+        self.drag_still_elapsed_ms = 0;
+        if let ActionState::Raised {
+            dropping: false,
+            is_static,
+        } = &mut self.state
+            && *is_static
+        {
+            *is_static = false;
+            self.enter_state_clip(index, world);
+        }
     }
 
     pub fn on_drag_end(
@@ -327,7 +370,25 @@ impl InteractionController {
         let max_x = (bounds.0 as i32 - sprite_logical.0 as i32).max(0);
         let offset_left = ((219_f32 * sprite_logical.0 as f32) / 500.0).round() as i32;
         let offset_right = (((500.0 - 281_f32) * sprite_logical.0 as f32) / 500.0).round() as i32;
-        if pos.0 <= 60 {
+        let offset_top = ((150_f32 * sprite_logical.1 as f32) / 500.0).round() as i32;
+        if pos.1 <= 60 {
+            pos.1 = -offset_top;
+            world.output_positions.insert(output_name.to_owned(), pos);
+            let kind = if pos.0 < max_x / 2 {
+                ClimbKind::TopCeilingRight
+            } else {
+                ClimbKind::TopCeilingLeft
+            };
+            self.request_state(
+                ActionState::Climbing {
+                    kind,
+                    loops_remaining: 6,
+                },
+                true,
+                index,
+                world,
+            );
+        } else if pos.0 <= 60 {
             pos.0 = -offset_left;
             world.output_positions.insert(output_name.to_owned(), pos);
             self.request_state(
@@ -353,7 +414,15 @@ impl InteractionController {
             );
         } else {
             world.output_positions.insert(output_name.to_owned(), pos);
-            self.request_state(ActionState::Raised { dropping: true }, true, index, world);
+            self.request_state(
+                ActionState::Raised {
+                    dropping: true,
+                    is_static: false,
+                },
+                true,
+                index,
+                world,
+            );
         }
     }
 
@@ -501,6 +570,20 @@ impl InteractionController {
             }
         }
 
+        // While the pet is held in the air, keep the swing/kick animation running and only
+        // relax into the static blinking pose after the finger has been still for a while.
+        if let ActionState::Raised {
+            dropping: false,
+            is_static,
+        } = &mut self.state
+        {
+            self.drag_still_elapsed_ms = self.drag_still_elapsed_ms.saturating_add(dt_ms);
+            if !*is_static && self.drag_still_elapsed_ms >= 1_400 {
+                *is_static = true;
+                self.enter_state_clip(index, world);
+            }
+        }
+
         // Hold edge position during SideHide so character aligns exactly with screen bezel.
         if let ActionState::SideHide { left, .. } = self.state {
             let max_x = (bounds.0 as i32 - sprite_logical.0 as i32).max(0);
@@ -512,6 +595,123 @@ impl InteractionController {
             } else {
                 max_x + offset_right
             };
+        }
+
+        // Climb up a wall, crawl across the ceiling, then drop back down to the desktop.
+        if let ActionState::Climbing { kind, .. } = self.state {
+            let max_x = (bounds.0 as i32 - sprite_logical.0 as i32).max(0);
+            let offset_left = ((219_f32 * sprite_logical.0 as f32) / 500.0).round() as i32;
+            let offset_right =
+                (((500.0 - 281_f32) * sprite_logical.0 as f32) / 500.0).round() as i32;
+            let offset_top = ((150_f32 * sprite_logical.1 as f32) / 500.0).round() as i32;
+            match kind {
+                ClimbKind::LeftWall => {
+                    pos.0 = -offset_left;
+                    self.walk_subpx += 95.0 * (f64::from(dt_ms) / 1000.0);
+                    let step = self.walk_subpx.trunc() as i32;
+                    if step > 0 {
+                        self.walk_subpx -= f64::from(step);
+                        pos.1 = pos.1.saturating_sub(step);
+                        world.statistics.pixels_walked += u64::from(step.unsigned_abs());
+                        world.output_positions.insert(output_name.to_owned(), *pos);
+                        if pos.1 <= -offset_top {
+                            pos.1 = -offset_top;
+                            world.output_positions.insert(output_name.to_owned(), *pos);
+                            self.request_state(
+                                ActionState::Climbing {
+                                    kind: ClimbKind::TopCeilingRight,
+                                    loops_remaining: 6,
+                                },
+                                true,
+                                index,
+                                world,
+                            );
+                            return;
+                        }
+                    }
+                }
+                ClimbKind::RightWall => {
+                    pos.0 = max_x + offset_right;
+                    self.walk_subpx += 95.0 * (f64::from(dt_ms) / 1000.0);
+                    let step = self.walk_subpx.trunc() as i32;
+                    if step > 0 {
+                        self.walk_subpx -= f64::from(step);
+                        pos.1 = pos.1.saturating_sub(step);
+                        world.statistics.pixels_walked += u64::from(step.unsigned_abs());
+                        world.output_positions.insert(output_name.to_owned(), *pos);
+                        if pos.1 <= -offset_top {
+                            pos.1 = -offset_top;
+                            world.output_positions.insert(output_name.to_owned(), *pos);
+                            self.request_state(
+                                ActionState::Climbing {
+                                    kind: ClimbKind::TopCeilingLeft,
+                                    loops_remaining: 6,
+                                },
+                                true,
+                                index,
+                                world,
+                            );
+                            return;
+                        }
+                    }
+                }
+                ClimbKind::TopCeilingRight => {
+                    pos.1 = -offset_top;
+                    self.walk_subpx += 65.0 * (f64::from(dt_ms) / 1000.0);
+                    let step = self.walk_subpx.trunc() as i32;
+                    if step > 0 {
+                        self.walk_subpx -= f64::from(step);
+                        pos.0 = (pos.0 + step).min(max_x);
+                        world.statistics.pixels_walked += u64::from(step.unsigned_abs());
+                        world.output_positions.insert(output_name.to_owned(), *pos);
+                        if pos.0 >= max_x / 2 {
+                            self.request_state(
+                                ActionState::Falling { left: false },
+                                true,
+                                index,
+                                world,
+                            );
+                            return;
+                        }
+                    }
+                }
+                ClimbKind::TopCeilingLeft => {
+                    pos.1 = -offset_top;
+                    self.walk_subpx += 65.0 * (f64::from(dt_ms) / 1000.0);
+                    let step = self.walk_subpx.trunc() as i32;
+                    if step > 0 {
+                        self.walk_subpx -= f64::from(step);
+                        pos.0 = (pos.0 - step).max(0);
+                        world.statistics.pixels_walked += u64::from(step.unsigned_abs());
+                        world.output_positions.insert(output_name.to_owned(), *pos);
+                        if pos.0 <= max_x / 2 {
+                            self.request_state(
+                                ActionState::Falling { left: true },
+                                true,
+                                index,
+                                world,
+                            );
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Gravity pulls the pet back to the floor after letting go of the ceiling.
+        if let ActionState::Falling { .. } = self.state {
+            let floor_y = (bounds.1 as i32 - sprite_logical.1 as i32).max(0);
+            self.walk_subpx += 380.0 * (f64::from(dt_ms) / 1000.0);
+            let step = self.walk_subpx.trunc() as i32;
+            if step > 0 {
+                self.walk_subpx -= f64::from(step);
+                pos.1 = (pos.1 + step).min(floor_y);
+                world.output_positions.insert(output_name.to_owned(), *pos);
+                if pos.1 >= floor_y {
+                    self.finish_transient_state(index, world);
+                    return;
+                }
+            }
         }
 
         // Apply horizontal movement during `Moving` and bounce/climb cleanly at screen edges.
@@ -538,31 +738,61 @@ impl InteractionController {
                 world.output_positions.insert(output_name.to_owned(), *pos);
 
                 if next_x <= 25 && dir_x < 0 {
-                    let offset_left = ((219_f32 * sprite_logical.0 as f32) / 500.0).round() as i32;
-                    pos.0 = -offset_left;
-                    self.request_state(
-                        ActionState::SideHide {
-                            left: true,
-                            emerging: false,
-                        },
-                        true,
-                        index,
-                        world,
-                    );
+                    // Auto-walk never hides at the bezel: climb the wall or turn around.
+                    if world.rng.next_u64() & 1 == 0 {
+                        let offset_left =
+                            ((219_f32 * sprite_logical.0 as f32) / 500.0).round() as i32;
+                        pos.0 = -offset_left;
+                        self.request_state(
+                            ActionState::Climbing {
+                                kind: ClimbKind::LeftWall,
+                                loops_remaining: 8,
+                            },
+                            true,
+                            index,
+                            world,
+                        );
+                    } else {
+                        pos.0 = 0;
+                        self.request_state(
+                            ActionState::Moving {
+                                dir_x: 1,
+                                speed_px_per_sec,
+                                loops_remaining: 4,
+                            },
+                            true,
+                            index,
+                            world,
+                        );
+                    }
                     return;
                 } else if next_x >= max_x.saturating_sub(25) && dir_x > 0 {
-                    let offset_right =
-                        (((500.0 - 281_f32) * sprite_logical.0 as f32) / 500.0).round() as i32;
-                    pos.0 = max_x + offset_right;
-                    self.request_state(
-                        ActionState::SideHide {
-                            left: false,
-                            emerging: false,
-                        },
-                        true,
-                        index,
-                        world,
-                    );
+                    if world.rng.next_u64() & 1 == 0 {
+                        let offset_right =
+                            (((500.0 - 281_f32) * sprite_logical.0 as f32) / 500.0).round() as i32;
+                        pos.0 = max_x + offset_right;
+                        self.request_state(
+                            ActionState::Climbing {
+                                kind: ClimbKind::RightWall,
+                                loops_remaining: 8,
+                            },
+                            true,
+                            index,
+                            world,
+                        );
+                    } else {
+                        pos.0 = max_x;
+                        self.request_state(
+                            ActionState::Moving {
+                                dir_x: -1,
+                                speed_px_per_sec,
+                                loops_remaining: 4,
+                            },
+                            true,
+                            index,
+                            world,
+                        );
+                    }
                     return;
                 }
             }
@@ -688,6 +918,38 @@ impl InteractionController {
                     false,
                 )
             }
+            ActionState::Climbing {
+                kind,
+                loops_remaining,
+            } => {
+                let climb_name = match kind {
+                    ClimbKind::LeftWall => "climb.left",
+                    ClimbKind::RightWall => "climb.right",
+                    ClimbKind::TopCeilingLeft => "climb.top.left",
+                    ClimbKind::TopCeilingRight => "climb.top.right",
+                };
+                resolve_chain_start(
+                    index,
+                    GraphType::Move,
+                    Some(climb_name),
+                    mode,
+                    seed,
+                    Some(*loops_remaining),
+                    false,
+                )
+            }
+            ActionState::Falling { left } => {
+                let fall_name = if *left { "fall.left" } else { "fall.right" };
+                resolve_chain_start(
+                    index,
+                    GraphType::Move,
+                    Some(fall_name),
+                    mode,
+                    seed,
+                    None,
+                    false,
+                )
+            }
             ActionState::Saying => {
                 resolve_chain_start(index, GraphType::Say, None, mode, seed, Some(1), false)
             }
@@ -788,7 +1050,10 @@ impl InteractionController {
                 };
                 resolve_chain_start(index, gt, None, mode, seed, Some(1), false)
             }
-            ActionState::Raised { dropping: false } => resolve_chain_start(
+            ActionState::Raised {
+                dropping: false,
+                is_static: false,
+            } => resolve_chain_start(
                 index,
                 GraphType::RaisedDynamic,
                 None,
@@ -797,7 +1062,19 @@ impl InteractionController {
                 None,
                 true,
             ),
-            ActionState::Raised { dropping: true } => {
+            ActionState::Raised {
+                dropping: false,
+                is_static: true,
+            } => resolve_chain_start(
+                index,
+                GraphType::RaisedStatic,
+                None,
+                mode,
+                seed,
+                None,
+                true,
+            ),
+            ActionState::Raised { dropping: true, .. } => {
                 resolve_c_end_or_single(index, GraphType::RaisedStatic, None, mode, seed)
             }
         };
@@ -818,7 +1095,7 @@ impl InteractionController {
         if self.active_clip.is_none()
             && matches!(
                 self.state,
-                ActionState::Raised { dropping: true }
+                ActionState::Raised { dropping: true, .. }
                     | ActionState::Sleeping { waking: true }
                     | ActionState::Touch { .. }
                     | ActionState::Pinch
@@ -846,6 +1123,9 @@ impl InteractionController {
                 Some(1)
             }
             ActionState::Moving {
+                loops_remaining, ..
+            }
+            | ActionState::Climbing {
                 loops_remaining, ..
             } => Some(*loops_remaining),
             _ => None,
@@ -892,6 +1172,26 @@ impl InteractionController {
                 self.finish_transient_state(index, world);
             }
             SegmentPhase::BLoop { .. } => {
+                // Wall climbs loop forever until the pet reaches the ceiling.
+                if matches!(
+                    self.state,
+                    ActionState::Climbing {
+                        kind: ClimbKind::LeftWall | ClimbKind::RightWall,
+                        ..
+                    }
+                ) {
+                    return;
+                }
+                // Held still: keep blinking until the finger moves or the pet is dropped.
+                if matches!(
+                    self.state,
+                    ActionState::Raised {
+                        dropping: false,
+                        is_static: true
+                    }
+                ) {
+                    return;
+                }
                 if let Some(c_entry) = index.pick(
                     prev.graph_type,
                     prev.name.as_deref(),
@@ -911,18 +1211,73 @@ impl InteractionController {
                 }
                 self.finish_transient_state(index, world);
             }
-            SegmentPhase::CEnd | SegmentPhase::Single { .. } => {
+            SegmentPhase::CEnd => {
                 self.finish_transient_state(index, world);
+            }
+            SegmentPhase::Single { looped } => {
+                // A held pet keeps cycling the swing/kick animation without ever settling.
+                if let ActionState::Raised {
+                    dropping: false,
+                    is_static: false,
+                } = self.state
+                {
+                    let seed = world.rng.next_u64();
+                    if let Some((entry, phase, name_opt)) = resolve_chain_start(
+                        index,
+                        GraphType::RaisedDynamic,
+                        None,
+                        world.pet.mode,
+                        seed,
+                        None,
+                        true,
+                    ) {
+                        self.active_clip = Some(ActiveClip {
+                            cache_key: clip_cache_key(entry, self.target_px),
+                            graph_type: entry.graph_type,
+                            name: name_opt,
+                            mode: world.pet.mode,
+                            phase,
+                            source: entry.source.clone(),
+                            frame_index: 0,
+                            frame_elapsed_ms: 0,
+                            seed,
+                        });
+                        return;
+                    }
+                }
+                if !looped {
+                    self.finish_transient_state(index, world);
+                }
             }
         }
     }
 
     fn finish_transient_state(&mut self, index: &AnimationIndex, world: &mut World) {
         match self.state {
+            ActionState::Raised {
+                dropping: false, ..
+            } => {
+                return;
+            }
             ActionState::Shutdown { .. } => {
                 self.shutdown_ready = true;
                 return;
             }
+            ActionState::Climbing { kind, .. } => match kind {
+                ClimbKind::TopCeilingLeft => {
+                    self.state = ActionState::Falling { left: true };
+                    self.active_clip = None;
+                    self.enter_state_clip(index, world);
+                    return;
+                }
+                ClimbKind::TopCeilingRight => {
+                    self.state = ActionState::Falling { left: false };
+                    self.active_clip = None;
+                    self.enter_state_clip(index, world);
+                    return;
+                }
+                ClimbKind::LeftWall | ClimbKind::RightWall => {}
+            },
             ActionState::SideHide {
                 left,
                 emerging: false,
@@ -1102,7 +1457,14 @@ mod tests {
 
         // Higher-priority Drag/Raised preempts anything and saves output position on drop.
         ctrl.on_drag_start(&idx, &mut world);
-        assert_eq!(ctrl.state(), &ActionState::Raised { dropping: false });
+        assert_eq!(
+            ctrl.state(),
+            &ActionState::Raised {
+                dropping: false,
+                is_static: false
+            }
+        );
+        ctrl.on_drag_motion(&idx, &mut world);
         ctrl.on_drag_end(
             "eDP-1",
             (320, 640),
@@ -1128,7 +1490,7 @@ mod tests {
             ActionState::SideHide { left: true, .. }
         ));
 
-        // Auto-walk hitting left screen edge (x = 0) enters SideHide at border.
+        // Auto-walk hitting the left bezel climbs the wall or turns around, never SideHide.
         pos = (2, 760);
         ctrl.request_state(
             ActionState::Moving {
@@ -1152,11 +1514,32 @@ mod tests {
             &idx,
             &mut world,
         );
-        assert_eq!(pos.0, -110);
         assert!(matches!(
             ctrl.state(),
-            ActionState::SideHide { left: true, .. }
+            ActionState::Climbing {
+                kind: ClimbKind::LeftWall,
+                ..
+            } | ActionState::Moving { dir_x: 1, .. }
         ));
+
+        // Dropping the pet at the top bezel makes her climb across the ceiling.
+        ctrl.on_drag_start(&idx, &mut world);
+        ctrl.on_drag_end(
+            "eDP-1",
+            (900, 10),
+            (1920, 1080),
+            (250, 250),
+            &idx,
+            &mut world,
+        );
+        assert!(matches!(
+            ctrl.state(),
+            ActionState::Climbing {
+                kind: ClimbKind::TopCeilingLeft,
+                ..
+            }
+        ));
+        assert_eq!(world.output_positions.get("eDP-1"), Some(&(900, -75)));
 
         // Test pinch face triggers Pinch animation state
         ctrl.on_click_zone(HitZone::Pinch, &texts, &idx, &mut world);

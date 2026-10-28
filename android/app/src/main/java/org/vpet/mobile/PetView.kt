@@ -101,6 +101,7 @@ class PetView(
 
                 if (isDragging) {
                     onMoveDelta(dx, dy)
+                    onActionTouch("drag_move", event.x, event.y)
                     initialTouchX = event.rawX
                     initialTouchY = event.rawY
                 }

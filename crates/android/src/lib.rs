@@ -393,6 +393,10 @@ impl MobileEngine {
                 self.anim.on_drag_start(&self.anim_index, &mut self.world);
                 "dragging".to_owned()
             }
+            "drag_move" => {
+                self.anim.on_drag_motion(&self.anim_index, &mut self.world);
+                "dragging".to_owned()
+            }
             "drop" => {
                 self.anim.on_drag_end(
                     "screen",

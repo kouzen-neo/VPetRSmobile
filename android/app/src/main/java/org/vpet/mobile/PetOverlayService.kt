@@ -93,12 +93,14 @@ class PetOverlayService : Service() {
 
             val needsRender = PetBridge.nativeTick(enginePtr, dt)
 
-            // Sync walking position from native engine if pet is moving
+            // Sync walking, climbing, and falling position from native engine
             if (!isDraggingPet) {
                 val newX = PetBridge.nativeGetPosX(enginePtr)
+                val newY = PetBridge.nativeGetPosY(enginePtr)
                 layoutParams?.let { params ->
-                    if (params.x != newX) {
+                    if (params.x != newX || params.y != newY) {
                         params.x = newX
+                        params.y = newY
                         windowManager?.updateViewLayout(petView, params)
                     }
                 }
@@ -224,10 +226,12 @@ class PetOverlayService : Service() {
                     val offsetLeft = ((219f * (petView?.bitmapWidth ?: 280)) / 500f).toInt()
                     val offsetRight = (((500f - 281f) * (petView?.bitmapWidth ?: 280)) / 500f).toInt()
                     val minX = -offsetLeft
+                    val offsetTop = ((150f * (petView?.bitmapHeight ?: 350)) / 500f).toInt()
+                    val minY = -offsetTop
                     val maxX = dm.widthPixels - (petView?.bitmapWidth ?: 280) + offsetRight
                     val maxY = (dm.heightPixels - (petView?.bitmapHeight ?: 350)).coerceAtLeast(0)
                     params.x = (params.x + dx).coerceIn(minX, maxX)
-                    params.y = (params.y + dy).coerceIn(0, maxY)
+                    params.y = (params.y + dy).coerceIn(minY, maxY)
                     if (enginePtr != 0L) {
                         PetBridge.nativeSetPos(enginePtr, params.x, params.y)
                     }
