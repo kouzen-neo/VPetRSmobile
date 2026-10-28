@@ -55,3 +55,6 @@ Thumbs.db
 
 # Local agent notes
 /AGENTS.md
+
+# Native build output (produced by scripts/build-apk.sh)
+android/app/src/main/jniLibs/

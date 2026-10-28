@@ -30,3 +30,39 @@ VPetRustMobile/
 - Rust 2024 edition + `cargo-ndk`
 - Android NDK r26b+
 - Android target: `aarch64-linux-android`
+
+## Assets
+
+The VPet `0000_core` artwork, animations, and text are **not** part of this
+repository. They belong to the upstream [VPet](https://github.com/LorisYounger/VPet)
+project, so they are downloaded on demand and kept outside git:
+
+```bash
+# Reuse your existing VPet installation (fastest, no download)
+./scripts/fetch-assets.sh --from ~/path/to/VPet-Simulator.Windows/mod/0000_core
+
+# Or reuse a Steam install / download ~1.1 GB of assets from upstream
+./scripts/fetch-assets.sh
+```
+
+The default location is `~/.local/share/vpet-rs/content/0000_core`, shared with
+the desktop VPetRS build. Override it with `VPET_CORE_DIR` or `--dest`.
+`scripts/build-apk.sh` calls this automatically when the folder is missing, then
+packages the content into `android/app/src/main/assets/0000_core.zip`, which the
+app extracts on first launch. The folder `file/` and `photo/` are desktop-only
+and are skipped.
+
+Never commit `0000_core.zip`, extracted content, or a built APK (`*.zip` and
+`*.apk` are already ignored).
+
+## Building
+
+```bash
+# NDK is auto-detected from $ANDROID_NDK_HOME, $ANDROID_SDK_ROOT, or ~/Android/Sdk
+./scripts/build-apk.sh
+```
+
+The script resolves the assets, builds `libvpet_mobile.so` with `cargo-ndk`,
+assembles the signed release APK, and copies it to `vpet-mobile.apk`. Output is
+`android/app/build/outputs/apk/release/app-release.apk`.
+
