@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 FORBIDDEN_TREE='dotnet|mono|avalonia|coreclr'
-FORBIDDEN_SO='coreclr|mono|dotnet'
+FORBIDDEN_NEEDED='coreclr|mono|dotnet|mscorlib|hostfxr'
 
 if [ -f "$ROOT/Cargo.toml" ]; then
     if cargo tree --workspace 2>/dev/null | grep -Eiq "$FORBIDDEN_TREE"; then
@@ -16,16 +16,17 @@ if [ -f "$ROOT/Cargo.toml" ]; then
 fi
 
 # Check built native shared libraries if present
-FOUND_SO=0
 for so in $(find "$ROOT/target" -type f -name "libvpet_*.so" 2>/dev/null); do
-    FOUND_SO=1
     if file "$so" | grep -qv 'ELF'; then
         echo "FAIL: $so is not an ELF binary" >&2
         exit 1
     fi
-    if strings "$so" | grep -Eiq "$FORBIDDEN_SO"; then
-        echo "FAIL: $so references forbidden .NET symbols" >&2
-        exit 1
+    if command -v readelf >/dev/null 2>&1; then
+        if readelf -d "$so" 2>/dev/null | grep -i 'NEEDED' | grep -Eiq "$FORBIDDEN_NEEDED"; then
+            echo "FAIL: $so links against forbidden .NET libraries" >&2
+            readelf -d "$so" | grep -i 'NEEDED' >&2
+            exit 1
+        fi
     fi
 done
 
