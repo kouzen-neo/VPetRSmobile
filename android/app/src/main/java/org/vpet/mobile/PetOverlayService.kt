@@ -96,7 +96,8 @@ class PetOverlayService : Service() {
             // Sync walking, climbing, and falling position from native engine
             if (!isDraggingPet) {
                 val newX = PetBridge.nativeGetPosX(enginePtr)
-                val newY = PetBridge.nativeGetPosY(enginePtr)
+                val pad = petView?.bubblePadPx ?: 0
+                val newY = PetBridge.nativeGetPosY(enginePtr) - pad
                 layoutParams?.let { params ->
                     if (params.x != newX || params.y != newY) {
                         params.x = newX
@@ -201,14 +202,20 @@ class PetOverlayService : Service() {
         }
 
         val savedX = prefs.getInt("pet_pos_x", 120)
-        val savedY = prefs.getInt("pet_pos_y", 350)
+        val metrics = resources.displayMetrics
+        val offsetTop = ((150f * targetPx) / 500f).toInt()
+        // Overlay y is the sprite box minus the bubble padding drawn above it.
+        val minY = -offsetTop - bubblePadPx
+        val maxY = (metrics.heightPixels - targetPx - bubblePadPx).coerceAtLeast(0)
+        val savedY = prefs.getInt("pet_pos_y", 350).coerceIn(minY, maxY)
 
         layoutParams = WindowManager.LayoutParams(
             targetPx,
             targetPx + bubblePadPx,
             overlayType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -223,17 +230,20 @@ class PetOverlayService : Service() {
             onMoveDelta = { dx, dy ->
                 layoutParams?.let { params ->
                     val dm = resources.displayMetrics
-                    val offsetLeft = ((219f * (petView?.bitmapWidth ?: 280)) / 500f).toInt()
-                    val offsetRight = (((500f - 281f) * (petView?.bitmapWidth ?: 280)) / 500f).toInt()
+                    val pad = petView?.bubblePadPx ?: 0
+                    val sprite = petView?.bitmapWidth ?: 280
+                    val offsetLeft = ((219f * sprite) / 500f).toInt()
+                    val offsetRight = (((500f - 281f) * sprite) / 500f).toInt()
+                    val offsetTop = ((150f * sprite) / 500f).toInt()
                     val minX = -offsetLeft
-                    val offsetTop = ((150f * (petView?.bitmapHeight ?: 350)) / 500f).toInt()
-                    val minY = -offsetTop
-                    val maxX = dm.widthPixels - (petView?.bitmapWidth ?: 280) + offsetRight
-                    val maxY = (dm.heightPixels - (petView?.bitmapHeight ?: 350)).coerceAtLeast(0)
+                    val minY = -offsetTop - pad
+                    val maxX = dm.widthPixels - sprite + offsetRight
+                    val maxY = (dm.heightPixels - sprite - pad).coerceAtLeast(0)
                     params.x = (params.x + dx).coerceIn(minX, maxX)
                     params.y = (params.y + dy).coerceIn(minY, maxY)
                     if (enginePtr != 0L) {
-                        PetBridge.nativeSetPos(enginePtr, params.x, params.y)
+                        // The engine works in sprite space: the bubble strip sits above it.
+                        PetBridge.nativeSetPos(enginePtr, params.x, params.y + pad)
                     }
                     windowManager?.updateViewLayout(petView, params)
                 }
@@ -247,12 +257,13 @@ class PetOverlayService : Service() {
                 isDraggingPet = false
                 layoutParams?.let { params ->
                     if (enginePtr != 0L) {
-                        PetBridge.nativeSetPos(enginePtr, params.x, params.y)
+                        val pad = petView?.bubblePadPx ?: 0
+                        PetBridge.nativeSetPos(enginePtr, params.x, params.y + pad)
                         PetBridge.nativeTouch(enginePtr, "drop", 0f, 0f)
                         val snappedX = PetBridge.nativeGetPosX(enginePtr)
                         val snappedY = PetBridge.nativeGetPosY(enginePtr)
                         params.x = snappedX
-                        params.y = snappedY
+                        params.y = snappedY - pad
                         windowManager?.updateViewLayout(petView, params)
                     }
                     prefs.edit()
@@ -273,7 +284,7 @@ class PetOverlayService : Service() {
 
         val dm = resources.displayMetrics
         PetBridge.nativeSetScreenBounds(enginePtr, dm.widthPixels, dm.heightPixels)
-        PetBridge.nativeSetPos(enginePtr, savedX, savedY)
+        PetBridge.nativeSetPos(enginePtr, savedX, savedY + bubblePadPx)
         val autoWalkPref = prefs.getBoolean("pet_auto_walk", true)
         PetBridge.nativeSetAutoWalk(enginePtr, autoWalkPref)
 
@@ -320,18 +331,25 @@ class PetOverlayService : Service() {
         if (enginePtr != 0L) {
             PetBridge.nativeSetTargetPx(enginePtr, targetPx)
         }
+        val oldPad = petView?.bubblePadPx ?: bubblePadPx
         petView?.updateTargetSize(targetPx)
         layoutParams?.let { params ->
+            val spriteTop = params.y + oldPad
             params.width = targetPx
             params.height = targetPx + bubblePadPx
             val dm = resources.displayMetrics
             val offsetLeft = ((219f * targetPx) / 500f).toInt()
             val offsetRight = (((500f - 281f) * targetPx) / 500f).toInt()
+            val offsetTop = ((150f * targetPx) / 500f).toInt()
             val minX = -offsetLeft
+            val minY = -offsetTop - bubblePadPx
             val maxX = dm.widthPixels - targetPx + offsetRight
-            val maxY = (dm.heightPixels - (targetPx + bubblePadPx)).coerceAtLeast(0)
+            val maxY = (dm.heightPixels - targetPx - bubblePadPx).coerceAtLeast(0)
             params.x = params.x.coerceIn(minX, maxX)
-            params.y = params.y.coerceIn(0, maxY)
+            params.y = (spriteTop - bubblePadPx).coerceIn(minY, maxY)
+            if (enginePtr != 0L) {
+                PetBridge.nativeSetPos(enginePtr, params.x, params.y + bubblePadPx)
+            }
             windowManager?.updateViewLayout(petView, params)
         }
     }

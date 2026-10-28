@@ -371,7 +371,10 @@ impl InteractionController {
         let offset_left = ((219_f32 * sprite_logical.0 as f32) / 500.0).round() as i32;
         let offset_right = (((500.0 - 281_f32) * sprite_logical.0 as f32) / 500.0).round() as i32;
         let offset_top = ((150_f32 * sprite_logical.1 as f32) / 500.0).round() as i32;
-        if pos.1 <= 60 {
+        // The overlay draws a bubble strip above the sprite, so "near the top" is measured
+        // in window space: sprite y plus that strip must still fall inside the top band.
+        let bubble_pad = sprite_logical.1 as i32 / 3;
+        if pos.1 <= 60 + bubble_pad {
             pos.1 = -offset_top;
             world.output_positions.insert(output_name.to_owned(), pos);
             let kind = if pos.0 < max_x / 2 {
