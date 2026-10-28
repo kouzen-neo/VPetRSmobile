@@ -17,7 +17,7 @@
 *.pro         text eol=lf
 gradlew       text eol=lf
 
-# GitHub Linguist overrides: report repository as Rust & Kotlin
+# GitHub Linguist overrides: report repository as Rust and Kotlin
 *.sh                   linguist-detectable=false
 *.xml                  linguist-detectable=false
 *.properties           linguist-detectable=false
@@ -28,6 +28,8 @@ scripts/**             linguist-detectable=false
 .github/**             linguist-detectable=false
 docs/**                linguist-documentation
 *.md                   linguist-documentation
+Cargo.lock             linguist-detectable=false
+*.jar                  linguist-vendored
 
 # Binary assets, shared libraries, and archives
 *.so        binary

@@ -7,23 +7,38 @@
 
 # Android / Gradle build artifacts
 .gradle/
+**/.gradle/
+.idea/
+.kotlin/
+**/.kotlin/
 build/
-*/build/
-app/build/
+**/build/
 .cxx/
+.externalNativeBuild/
 local.properties
+captures/
+lint-results*
+*.hprof
 *.apk
 *.aab
 *.ap_
 *.dex
 *.class
-*.zip
+*.jar.tmp
 vpet-mobile.apk
-captures/
+
+# Native build output (produced by scripts/build-apk.sh)
+android/app/src/main/jniLibs/
+
+# Bundled starter assets (created from upstream VPet content at build time)
+*.zip
+android/app/src/main/assets/0000_core/
 
 # Android signing keys & keystores (never commit release keys)
 *.jks
 *.keystore
+*.p12
+*.pepk
 release-key.properties
 
 # Runtime saves, sockets, logs, and dumps
@@ -34,7 +49,7 @@ release-key.properties
 *.log
 *.log.*
 
-# User-supplied VPet content & raw assets (never bundle upstream art directly in git)
+# User-supplied VPet content & raw assets (never bundle upstream art in git)
 /0000_core/
 /content/
 /assets/0000_core/
@@ -44,17 +59,18 @@ release-key.properties
 # OS & editor files
 .DS_Store
 Thumbs.db
+.Trash-*
 *~
 *.swp
 *.swo
-.idea/
+*.orig
+*.rej
 .vscode/
 *.iml
 .direnv/
 .env
 
-# Local agent notes
+# Local agent & planning notes
 /AGENTS.md
-
-# Native build output (produced by scripts/build-apk.sh)
-android/app/src/main/jniLibs/
+/IMPLEMENTATION.md
+/TODO.md

@@ -19,9 +19,7 @@ VPetRustMobile/
 │   ├── core/         # Headless deterministic simulation
 │   └── render/       # tiny-skia CPU frame renderer
 ├── scripts/          # Quality gate & build scripts
-├── CHANGELOG.md      # SemVer changelog
-├── IMPLEMENTATION.md # Architecture Decision Records & design
-└── TODO.md           # Work board & phase checklist
+└── CHANGELOG.md      # SemVer changelog
 ```
 
 ## Requirements
@@ -65,4 +63,15 @@ Never commit `0000_core.zip`, extracted content, or a built APK (`*.zip` and
 The script resolves the assets, builds `libvpet_mobile.so` with `cargo-ndk`,
 assembles the signed release APK, and copies it to `vpet-mobile.apk`. Output is
 `android/app/build/outputs/apk/release/app-release.apk`.
+
+## License & Asset Terms
+
+- **VPetRustMobile source code** is dual-licensed under [MIT](LICENSE-MIT) **or**
+  [Apache-2.0](LICENSE-APACHE), at your option.
+- **VPet assets** (`0000_core` artwork, animations, and text) are **not** included
+  in this repository. They belong to the upstream
+  [VPet](https://github.com/LorisYounger/VPet) project and are governed by its
+  terms: attribution is required, they may not be sold, and commercial use
+  requires permission from the original authors.
+
 

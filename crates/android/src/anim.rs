@@ -1068,15 +1068,7 @@ impl InteractionController {
             ActionState::Raised {
                 dropping: false,
                 is_static: true,
-            } => resolve_chain_start(
-                index,
-                GraphType::RaisedStatic,
-                None,
-                mode,
-                seed,
-                None,
-                true,
-            ),
+            } => resolve_chain_start(index, GraphType::RaisedStatic, None, mode, seed, None, true),
             ActionState::Raised { dropping: true, .. } => {
                 resolve_c_end_or_single(index, GraphType::RaisedStatic, None, mode, seed)
             }
